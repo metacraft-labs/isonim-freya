@@ -53,4 +53,31 @@ proc freya_next_sibling*(node: FreyaElement): FreyaElement
 proc freya_parent_node*(node: FreyaElement): FreyaElement
   {.importc: "freya_parent_node".}
 
+# --- Window / event loop management ---
+
+type RootBuilderCallback* = proc(root: FreyaElement) {.cdecl.}
+
+proc freya_launch*(title: cstring; width, height: cdouble;
+                   root_builder: RootBuilderCallback)
+  {.importc: "freya_launch".}
+
+proc freya_dispatch_event*(node: FreyaElement; event: cstring)
+  {.importc: "freya_dispatch_event".}
+
+# --- Memory management ---
+
+proc freya_destroy_element*(handle: FreyaElement)
+  {.importc: "freya_destroy_element".}
+
+proc freya_destroy_tree*(handle: FreyaElement)
+  {.importc: "freya_destroy_tree".}
+
+# --- Debugging / testing ---
+
+proc freya_reset_tree*()
+  {.importc: "freya_reset_tree".}
+
+proc freya_tree_node_count*(): uint64
+  {.importc: "freya_tree_node_count".}
+
 {.pop.}

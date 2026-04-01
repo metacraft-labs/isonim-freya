@@ -7,5 +7,15 @@ description = "C FFI shim exposing Freya operations for IsoNim's RendererBackend
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = []
+# Enable actual Freya rendering (requires Skia system deps).
+# Without this feature, the shim provides the shadow tree and extern "C" API
+# but the launch function does not start a real Freya window.
+freya-backend = ["freya"]
+
 [dependencies]
-freya = "0.3"
+freya = { version = "0.3", optional = true }
+
+[dev-dependencies]
+serial_test = "3"
