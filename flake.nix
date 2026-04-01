@@ -62,6 +62,18 @@
               pkgs.libxi
               pkgs.libxrandr
               pkgs.libxcb
+
+              # Headless GUI testing
+              pkgs.xorg.xorgserver   # Xvfb
+              pkgs.xorg.xdpyinfo     # X11 display info (Xvfb readiness check)
+              pkgs.mesa               # Software GL (llvmpipe)
+              pkgs.libglvnd           # GL dispatch
+              pkgs.sway               # Wayland compositor (headless mode)
+              pkgs.weston             # Wayland compositor (lightweight headless)
+              pkgs.wayland-utils      # wayland-info
+              pkgs.wf-recorder        # Wayland screen recorder
+              pkgs.ffmpeg-full        # Video recording/encoding
+              pkgs.mpv                # Video player for streaming
             ];
 
           # Ensure the linker can find native libs at build time
@@ -78,6 +90,8 @@
               pkgs.libxi
               pkgs.libxrandr
               pkgs.libxcb
+              pkgs.mesa
+              pkgs.libglvnd
             ]
           );
 

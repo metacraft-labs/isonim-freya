@@ -916,14 +916,22 @@ fn render_plan_to_json(plan: &render_sync::RenderNode) -> String {
 
         let children: Vec<String> = plan.children.iter().map(node_to_string).collect();
 
+        let attr_entries: Vec<String> = plan
+            .attributes
+            .iter()
+            .map(|(k, v)| format!("\"{}\":\"{}\"", k, v.replace('\\', "\\\\").replace('"', "\\\"")))
+            .collect();
+        let attributes_json = format!("{{{}}}", attr_entries.join(","));
+
         format!(
-            "{{\"kind\":\"{}\",\"text\":{},\"has_click_handler\":{},\"has_input_handler\":{},\"event_names\":[{}],\"styles\":{},\"children\":[{}]}}",
+            "{{\"kind\":\"{}\",\"text\":{},\"has_click_handler\":{},\"has_input_handler\":{},\"event_names\":[{}],\"styles\":{},\"attributes\":{},\"children\":[{}]}}",
             kind,
             text,
             plan.has_click_handler,
             plan.has_input_handler,
             event_names.join(","),
             styles_json,
+            attributes_json,
             children.join(","),
         )
     }

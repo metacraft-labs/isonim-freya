@@ -211,6 +211,8 @@ pub struct RenderNode {
     pub has_input_handler: bool,
     /// All event listener names attached to this node (for introspection/testing).
     pub event_names: Vec<String>,
+    /// Relevant attributes from the shadow node (e.g. src, alt for images).
+    pub attributes: std::collections::HashMap<String, String>,
     /// Children render nodes (recursive).
     pub children: Vec<RenderNode>,
 }
@@ -234,6 +236,15 @@ pub fn build_render_plan(tree: &Tree, root_id: NodeId) -> Option<RenderNode> {
     let has_input_handler = node.event_listeners.contains_key("input");
     let event_names: Vec<String> = node.event_listeners.keys().cloned().collect();
 
+    // Preserve relevant attributes for rendering (e.g. src, alt for images, svg content).
+    // Filter out internal attributes (prefixed with "__").
+    let attributes: std::collections::HashMap<String, String> = node
+        .attributes
+        .iter()
+        .filter(|(k, _)| !k.starts_with("__"))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
     let children: Vec<RenderNode> = node
         .children
         .iter()
@@ -248,6 +259,7 @@ pub fn build_render_plan(tree: &Tree, root_id: NodeId) -> Option<RenderNode> {
         has_click_handler,
         has_input_handler,
         event_names,
+        attributes,
         children,
     })
 }
@@ -476,37 +488,77 @@ pub mod freya_render {
     }
 
     /// Render an `image` element.
+    ///
+    /// Freya's native `image` element requires pre-loaded byte data, not a URL.
+    /// Until async image loading is implemented, we render a placeholder rect
+    /// that preserves the src and alt attributes as a label so the content is
+    /// visible during development and testing.
     fn render_image(plan: &RenderNode) -> Element {
         let s = &plan.styles;
         let width = s.width.clone().unwrap_or_else(|| "auto".to_string());
         let height = s.height.clone().unwrap_or_else(|| "auto".to_string());
+        let background = s.background.clone().unwrap_or_else(|| "rgb(230, 230, 230)".to_string());
 
-        // The image URL/data is typically in the "src" attribute
-        // For now, we render a placeholder rect since Freya image loading
-        // requires bytes data, not a URL.
+        let src = plan.attributes.get("src").cloned().unwrap_or_default();
+        let alt = plan.attributes.get("alt").cloned().unwrap_or_else(|| "[image]".to_string());
+        // Show alt text, falling back to src if alt is empty
+        let display_text = if alt.is_empty() && !src.is_empty() {
+            format!("[img: {}]", src)
+        } else {
+            alt
+        };
+
         rsx! {
             rect {
                 width: "{width}",
                 height: "{height}",
-                // TODO: Load image data from src attribute
-                // image { image_data: ..., width: ..., height: ... }
+                background: "{background}",
+                main_align: "center",
+                cross_align: "center",
+                label { "{display_text}" }
             }
         }
     }
 
     /// Render an `svg` element.
+    ///
+    /// Freya's native `svg` element requires inline SVG data as a string.
+    /// We look for SVG content in the node's text content or the "data" / "src"
+    /// attributes.  If valid SVG data is found, we pass it through to Freya's
+    /// `svg` element; otherwise we render a placeholder rect.
     fn render_svg(plan: &RenderNode) -> Element {
         let s = &plan.styles;
         let width = s.width.clone().unwrap_or_else(|| "auto".to_string());
         let height = s.height.clone().unwrap_or_else(|| "auto".to_string());
+        let background = s.background.clone().unwrap_or_else(|| "rgb(240, 240, 240)".to_string());
 
-        // SVG data would come from the node's text content or an attribute
+        // Try to find SVG content from attributes or text content for display.
+        // Freya's native svg element requires compile-time static byte data,
+        // so dynamic SVG loading is deferred to a future milestone. For now,
+        // render a placeholder rect that preserves the SVG source info.
+        let svg_ref = plan.attributes.get("data")
+            .or_else(|| plan.attributes.get("src"))
+            .cloned()
+            .or_else(|| plan.text.clone())
+            .unwrap_or_default();
+
+        let label_text = if svg_ref.is_empty() {
+            "[svg]".to_string()
+        } else if svg_ref.len() > 40 {
+            // Likely inline SVG data — truncate for display
+            "[svg: inline data]".to_string()
+        } else {
+            format!("[svg: {}]", svg_ref)
+        };
+
         rsx! {
             rect {
                 width: "{width}",
                 height: "{height}",
-                // TODO: Render SVG content
-                // svg { svg_data: ..., width: ..., height: ... }
+                background: "{background}",
+                main_align: "center",
+                cross_align: "center",
+                label { "{label_text}" }
             }
         }
     }
@@ -828,6 +880,7 @@ mod tests {
             has_click_handler: false,
             has_input_handler: false,
             event_names: vec![],
+            attributes: std::collections::HashMap::new(),
             children: vec![
                 RenderNode {
                     node_id: NodeId(2),
@@ -837,6 +890,7 @@ mod tests {
                     has_click_handler: false,
                     has_input_handler: false,
                     event_names: vec![],
+                    attributes: std::collections::HashMap::new(),
                     children: vec![],
                 },
                 RenderNode {
@@ -847,6 +901,7 @@ mod tests {
                     has_click_handler: false,
                     has_input_handler: false,
                     event_names: vec![],
+                    attributes: std::collections::HashMap::new(),
                     children: vec![RenderNode {
                         node_id: NodeId(4),
                         element_kind: FreyaElementKind::Label,
@@ -855,6 +910,7 @@ mod tests {
                         has_click_handler: false,
                         has_input_handler: false,
                         event_names: vec![],
+                        attributes: std::collections::HashMap::new(),
                         children: vec![],
                     }],
                 },

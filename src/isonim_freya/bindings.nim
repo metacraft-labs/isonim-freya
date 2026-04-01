@@ -8,7 +8,12 @@ type
     ## Opaque handle to a Freya element managed by the Rust shim.
     ## The actual layout is a Rust struct; Nim only holds a pointer to it.
 
-const shimLib = "libfreya_nim_shim.so"  # TODO: platform-specific (.dylib on macOS)
+when defined(macosx):
+  const shimLib = "libfreya_nim_shim.dylib"
+elif defined(windows):
+  const shimLib = "freya_nim_shim.dll"
+else:
+  const shimLib = "libfreya_nim_shim.so"
 
 {.push cdecl, dynlib: shimLib.}
 

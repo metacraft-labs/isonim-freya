@@ -13,7 +13,12 @@ type
   FreyaElement* = ptr FreyaElementObj
     ## Opaque handle to a Freya element managed by the Rust shim.
 
-const shimLib = "libfreya_nim_shim.so" # TODO: platform-specific (.dylib on macOS)
+when defined(macosx):
+  const shimLib = "libfreya_nim_shim.dylib"
+elif defined(windows):
+  const shimLib = "freya_nim_shim.dll"
+else:
+  const shimLib = "libfreya_nim_shim.so"
 
 ## C function pointer type for event callbacks from Nim.
 type EventCallback* = proc() {.cdecl.}
