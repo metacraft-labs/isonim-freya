@@ -1,7 +1,7 @@
 ## Basic smoke test for isonim-freya.
 ##
 ## Verifies that the Nim side compiles and the type signatures are correct.
-## Does NOT link against the Rust shim (uses --compileOnly for now).
+## Does NOT link against the Rust shim (uses compile-only checks).
 
 # The renderer module re-exports everything we need.
 import isonim_freya/renderer
