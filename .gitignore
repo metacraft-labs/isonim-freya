@@ -9,3 +9,5 @@ tests/test_basic
 tests/test_renderer
 tests/test_window
 tests/test_cross_renderer
+tests/test_demo_app
+demos/task-manager/src/main
