@@ -132,4 +132,18 @@ proc freya_reset_tree*()
 proc freya_tree_node_count*(): uint64
   {.importc: "freya_tree_node_count".}
 
+# --- Tree inspection (M5 — cross-renderer testing) ---
+
+proc freya_child_count*(node: FreyaElement): uint64
+  {.importc: "freya_child_count".}
+
+proc freya_get_text_content*(node: FreyaElement; buf: pointer; bufLen: uint64): uint64
+  {.importc: "freya_get_text_content".}
+
+proc freya_get_attribute*(node: FreyaElement; name: cstring; buf: pointer; bufLen: uint64): uint64
+  {.importc: "freya_get_attribute".}
+
+proc freya_nth_child*(node: FreyaElement; index: uint64): FreyaElement
+  {.importc: "freya_nth_child".}
+
 {.pop.}

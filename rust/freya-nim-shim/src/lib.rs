@@ -24,7 +24,7 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::Mutex;
 
-use tree::{EventListener, Node, NodeId, Tree};
+use tree::{EventListener, Node, NodeId, NodeKind, Tree};
 use window::{CloseCallback, FocusCallback, ResizeCallback};
 
 /// Global shadow tree protected by a mutex.
@@ -471,6 +471,135 @@ pub extern "C" fn freya_reset_tree() {
 pub extern "C" fn freya_tree_node_count() -> u64 {
     let tree = lock_tree();
     tree.len() as u64
+}
+
+// ---------------------------------------------------------------------------
+// Tree inspection functions (M5 — cross-renderer testing)
+// ---------------------------------------------------------------------------
+
+/// Get the number of children of a node.
+/// Returns 0 if the node is null or not found.
+#[no_mangle]
+pub extern "C" fn freya_child_count(node: *mut FreyaElement) -> u64 {
+    let node_id = unsafe { handle_to_node_id(node) };
+    if node_id.is_null() {
+        return 0;
+    }
+    let tree = lock_tree();
+    tree.get(node_id)
+        .map(|n| n.children.len() as u64)
+        .unwrap_or(0)
+}
+
+/// Get the text content of a node and all its descendants (recursive).
+/// For text nodes, returns the text. For element nodes, concatenates
+/// all descendant text. The result is written into the provided buffer.
+/// Returns the number of bytes written (excluding null terminator),
+/// or the required buffer size if the buffer is too small.
+/// If `buf` is null, returns the required size.
+#[no_mangle]
+pub extern "C" fn freya_get_text_content(
+    node: *mut FreyaElement,
+    buf: *mut c_char,
+    buf_len: u64,
+) -> u64 {
+    let node_id = unsafe { handle_to_node_id(node) };
+    if node_id.is_null() {
+        return 0;
+    }
+    let tree = lock_tree();
+    let text = collect_text_content(&tree, node_id);
+    let bytes = text.as_bytes();
+    let needed = bytes.len() as u64;
+
+    if buf.is_null() || buf_len == 0 {
+        return needed;
+    }
+
+    let to_copy = std::cmp::min(bytes.len(), (buf_len - 1) as usize);
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf as *mut u8, to_copy);
+        *buf.add(to_copy) = 0; // null terminator
+    }
+    needed
+}
+
+/// Recursively collect text content from a node and its descendants.
+fn collect_text_content(tree: &Tree, node_id: NodeId) -> String {
+    if let Some(node) = tree.get(node_id) {
+        match &node.kind {
+            NodeKind::Text(text) => text.clone(),
+            NodeKind::Element(_) => {
+                // Check for __text_content attribute (set by setTextContent on elements)
+                if let Some(tc) = node.attributes.get("__text_content") {
+                    return tc.clone();
+                }
+                let mut result = String::new();
+                for &child_id in &node.children {
+                    result.push_str(&collect_text_content(tree, child_id));
+                }
+                result
+            }
+        }
+    } else {
+        String::new()
+    }
+}
+
+/// Get an attribute value from a node.
+/// Returns the number of bytes in the attribute value (excluding null),
+/// or 0 if the attribute is not found. Writes into `buf` if provided.
+#[no_mangle]
+pub extern "C" fn freya_get_attribute(
+    node: *mut FreyaElement,
+    name: *const c_char,
+    buf: *mut c_char,
+    buf_len: u64,
+) -> u64 {
+    let node_id = unsafe { handle_to_node_id(node) };
+    if node_id.is_null() {
+        return 0;
+    }
+    let name_str = unsafe { cstr_to_str(name) };
+    let tree = lock_tree();
+    let value = match tree.get(node_id) {
+        Some(n) => match n.attributes.get(name_str) {
+            Some(v) => v.clone(),
+            None => return 0,
+        },
+        None => return 0,
+    };
+
+    let bytes = value.as_bytes();
+    let needed = bytes.len() as u64;
+
+    if buf.is_null() || buf_len == 0 {
+        return needed;
+    }
+
+    let to_copy = std::cmp::min(bytes.len(), (buf_len - 1) as usize);
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf as *mut u8, to_copy);
+        *buf.add(to_copy) = 0;
+    }
+    needed
+}
+
+/// Get the Nth child of a node (0-indexed).
+/// Returns null if out of bounds or node not found.
+#[no_mangle]
+pub extern "C" fn freya_nth_child(node: *mut FreyaElement, index: u64) -> *mut FreyaElement {
+    let node_id = unsafe { handle_to_node_id(node) };
+    if node_id.is_null() {
+        return std::ptr::null_mut();
+    }
+    let tree = lock_tree();
+    if let Some(n) = tree.get(node_id) {
+        if (index as usize) < n.children.len() {
+            return node_id_to_handle(n.children[index as usize]);
+        }
+    }
+    std::ptr::null_mut()
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,5 +1194,136 @@ mod tests {
         assert_eq!(BUILDER_CALLED.load(Ordering::SeqCst), 1);
         // Root + label child = 2 nodes
         assert_eq!(freya_tree_node_count(), 2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_child_count() {
+        freya_reset_tree();
+        let tag = c("rect");
+        let parent = freya_create_element(tag.as_ptr());
+        assert_eq!(freya_child_count(parent), 0);
+
+        let c1 = freya_create_element(tag.as_ptr());
+        let c2 = freya_create_element(tag.as_ptr());
+        freya_append_child(parent, c1);
+        assert_eq!(freya_child_count(parent), 1);
+        freya_append_child(parent, c2);
+        assert_eq!(freya_child_count(parent), 2);
+
+        freya_remove_child(parent, c1);
+        assert_eq!(freya_child_count(parent), 1);
+
+        freya_destroy_element(parent);
+        freya_destroy_element(c1);
+        freya_destroy_element(c2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_text_content() {
+        freya_reset_tree();
+        let text = c("hello world");
+        let node = freya_create_text_node(text.as_ptr());
+
+        // Query size first
+        let needed = freya_get_text_content(node, std::ptr::null_mut(), 0);
+        assert_eq!(needed, 11); // "hello world".len()
+
+        // Read into buffer
+        let mut buf = vec![0u8; 64];
+        let written = freya_get_text_content(node, buf.as_mut_ptr() as *mut c_char, 64);
+        assert_eq!(written, 11);
+        let result = unsafe { CStr::from_ptr(buf.as_ptr() as *const c_char) };
+        assert_eq!(result.to_str().unwrap(), "hello world");
+
+        freya_destroy_element(node);
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_text_content_recursive() {
+        freya_reset_tree();
+        let tag = c("rect");
+        let parent = freya_create_element(tag.as_ptr());
+        let t1 = c("hello ");
+        let t2 = c("world");
+        let child1 = freya_create_text_node(t1.as_ptr());
+        let child2 = freya_create_text_node(t2.as_ptr());
+        freya_append_child(parent, child1);
+        freya_append_child(parent, child2);
+
+        let mut buf = vec![0u8; 64];
+        let written = freya_get_text_content(parent, buf.as_mut_ptr() as *mut c_char, 64);
+        assert_eq!(written, 11);
+        let result = unsafe { CStr::from_ptr(buf.as_ptr() as *const c_char) };
+        assert_eq!(result.to_str().unwrap(), "hello world");
+
+        freya_destroy_element(parent);
+        freya_destroy_element(child1);
+        freya_destroy_element(child2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_attribute() {
+        freya_reset_tree();
+        let tag = c("rect");
+        let node = freya_create_element(tag.as_ptr());
+        let name = c("class");
+        let value = c("container");
+        freya_set_attribute(node, name.as_ptr(), value.as_ptr());
+
+        let mut buf = vec![0u8; 64];
+        let written = freya_get_attribute(
+            node,
+            name.as_ptr(),
+            buf.as_mut_ptr() as *mut c_char,
+            64,
+        );
+        assert_eq!(written, 9); // "container".len()
+        let result = unsafe { CStr::from_ptr(buf.as_ptr() as *const c_char) };
+        assert_eq!(result.to_str().unwrap(), "container");
+
+        // Non-existent attribute
+        let missing = c("nonexistent");
+        let written = freya_get_attribute(
+            node,
+            missing.as_ptr(),
+            buf.as_mut_ptr() as *mut c_char,
+            64,
+        );
+        assert_eq!(written, 0);
+
+        freya_destroy_element(node);
+    }
+
+    #[test]
+    #[serial]
+    fn test_nth_child() {
+        freya_reset_tree();
+        let tag = c("rect");
+        let parent = freya_create_element(tag.as_ptr());
+        let c1 = freya_create_element(tag.as_ptr());
+        let c2 = freya_create_element(tag.as_ptr());
+        freya_append_child(parent, c1);
+        freya_append_child(parent, c2);
+
+        let nth0 = freya_nth_child(parent, 0);
+        assert!(!nth0.is_null());
+        assert_eq!(unsafe { (*nth0).node_id }, unsafe { (*c1).node_id });
+
+        let nth1 = freya_nth_child(parent, 1);
+        assert!(!nth1.is_null());
+        assert_eq!(unsafe { (*nth1).node_id }, unsafe { (*c2).node_id });
+
+        let nth2 = freya_nth_child(parent, 2);
+        assert!(nth2.is_null());
+
+        freya_destroy_element(nth0);
+        freya_destroy_element(nth1);
+        freya_destroy_element(parent);
+        freya_destroy_element(c1);
+        freya_destroy_element(c2);
     }
 }

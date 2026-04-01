@@ -355,6 +355,44 @@ proc parentNode*(r: FreyaRenderer; node: FreyaElement): FreyaElement =
   freya_parent_node(node)
 
 # ===========================================================================
+# Tree inspection helpers (for testing / cross-renderer comparison)
+# ===========================================================================
+
+proc childCount*(node: FreyaElement): int =
+  ## Return the number of children of a Freya element.
+  int(freya_child_count(node))
+
+proc textContent*(node: FreyaElement): string =
+  ## Return the recursive text content of a Freya element and its descendants.
+  ## Analogous to MockNode.textContent / TerminalNode.textContent.
+  let needed = freya_get_text_content(node, nil, 0)
+  if needed == 0:
+    return ""
+  var buf = newString(int(needed) + 1)
+  discard freya_get_text_content(node, addr buf[0], uint64(buf.len))
+  buf.setLen(int(needed))
+  buf
+
+proc getAttribute*(node: FreyaElement; name: string): string =
+  ## Return the value of an attribute on a Freya element.
+  ## Returns "" if the attribute is not set.
+  let needed = freya_get_attribute(node, name.cstring, nil, 0)
+  if needed == 0:
+    return ""
+  var buf = newString(int(needed) + 1)
+  discard freya_get_attribute(node, name.cstring, addr buf[0], uint64(buf.len))
+  buf.setLen(int(needed))
+  buf
+
+proc nthChild*(node: FreyaElement; index: int): FreyaElement =
+  ## Return the Nth child (0-indexed) of a Freya element, or nil.
+  freya_nth_child(node, uint64(index))
+
+proc fireEvent*(node: FreyaElement; event: string) =
+  ## Dispatch an event on a Freya element (calls all registered listeners).
+  freya_dispatch_event(node, event.cstring)
+
+# ===========================================================================
 # Compile-time concept check
 # ===========================================================================
 #

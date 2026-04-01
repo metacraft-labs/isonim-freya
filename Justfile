@@ -34,8 +34,12 @@ test:
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --nimcache:nimcache/test_renderer tests/test_renderer.nim
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --nimcache:nimcache/test_window tests/test_window.nim
 
+# Run cross-renderer tests (M5 — requires Rust shim and isonim)
+test-cross:
+    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_cross_renderer tests/test_cross_renderer.nim
+
 # Run all tests (Rust + Nim)
-test-all: rust-test test
+test-all: rust-test test test-cross
 
 # Generate Nim bindings from Rust shim using nbindgen
 generate-bindings:
