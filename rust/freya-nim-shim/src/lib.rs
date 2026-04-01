@@ -390,7 +390,10 @@ pub extern "C" fn freya_launch(
     // window with the shadow tree renderer as the root component.
     #[cfg(feature = "freya-backend")]
     {
-        freya_app::launch_freya_app(title_str, width, height);
+        // Create a window in the registry so that the Freya component can
+        // reference it for lifecycle events (resize, focus, close).
+        let win_id = window::create_window(title_str, width, height);
+        freya_app::launch_freya_app(title_str, width, height, win_id);
     }
 
     // Without the feature, the function returns after building the shadow tree.
@@ -1218,6 +1221,181 @@ mod tests {
         assert_eq!(BUILDER_CALLED.load(Ordering::SeqCst), 1);
         // Root + label child = 2 nodes
         assert_eq!(freya_tree_node_count(), 2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_dispatch_event_multiple_listeners() {
+        freya_reset_tree();
+
+        static CALL_A: AtomicU32 = AtomicU32::new(0);
+        static CALL_B: AtomicU32 = AtomicU32::new(0);
+
+        extern "C" fn handler_a() {
+            CALL_A.fetch_add(1, Ordering::SeqCst);
+        }
+        extern "C" fn handler_b() {
+            CALL_B.fetch_add(1, Ordering::SeqCst);
+        }
+
+        CALL_A.store(0, Ordering::SeqCst);
+        CALL_B.store(0, Ordering::SeqCst);
+
+        let tag = c("button");
+        let click = c("click");
+        let node = freya_create_element(tag.as_ptr());
+
+        freya_add_event_listener(node, click.as_ptr(), handler_a);
+        freya_add_event_listener(node, click.as_ptr(), handler_b);
+
+        freya_dispatch_event(node, click.as_ptr());
+        assert_eq!(CALL_A.load(Ordering::SeqCst), 1);
+        assert_eq!(CALL_B.load(Ordering::SeqCst), 1);
+
+        freya_dispatch_event(node, click.as_ptr());
+        assert_eq!(CALL_A.load(Ordering::SeqCst), 2);
+        assert_eq!(CALL_B.load(Ordering::SeqCst), 2);
+
+        freya_destroy_element(node);
+    }
+
+    #[test]
+    #[serial]
+    fn test_dispatch_event_different_events() {
+        freya_reset_tree();
+
+        static CLICK_COUNT: AtomicU32 = AtomicU32::new(0);
+        static INPUT_COUNT: AtomicU32 = AtomicU32::new(0);
+
+        extern "C" fn on_click() {
+            CLICK_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
+        extern "C" fn on_input() {
+            INPUT_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
+
+        CLICK_COUNT.store(0, Ordering::SeqCst);
+        INPUT_COUNT.store(0, Ordering::SeqCst);
+
+        let tag = c("div");
+        let click = c("click");
+        let input = c("input");
+        let node = freya_create_element(tag.as_ptr());
+
+        freya_add_event_listener(node, click.as_ptr(), on_click);
+        freya_add_event_listener(node, input.as_ptr(), on_input);
+
+        // Dispatch click — only click handler fires
+        freya_dispatch_event(node, click.as_ptr());
+        assert_eq!(CLICK_COUNT.load(Ordering::SeqCst), 1);
+        assert_eq!(INPUT_COUNT.load(Ordering::SeqCst), 0);
+
+        // Dispatch input — only input handler fires
+        freya_dispatch_event(node, input.as_ptr());
+        assert_eq!(CLICK_COUNT.load(Ordering::SeqCst), 1);
+        assert_eq!(INPUT_COUNT.load(Ordering::SeqCst), 1);
+
+        freya_destroy_element(node);
+    }
+
+    #[test]
+    #[serial]
+    fn test_dispatch_event_nonexistent_event() {
+        freya_reset_tree();
+        let tag = c("div");
+        let node = freya_create_element(tag.as_ptr());
+        let event = c("nonexistent");
+
+        // Should not crash — just does nothing
+        freya_dispatch_event(node, event.as_ptr());
+        freya_destroy_element(node);
+    }
+
+    #[test]
+    #[serial]
+    fn test_dispatch_event_null_node() {
+        let event = c("click");
+        // Should not crash
+        freya_dispatch_event(std::ptr::null_mut(), event.as_ptr());
+    }
+
+    #[test]
+    #[serial]
+    fn test_event_dispatch_releases_lock_before_callback() {
+        // Verify that the callback can access the tree (proving the lock
+        // was released before the callback was invoked).
+        freya_reset_tree();
+
+        static SUCCESS: AtomicU32 = AtomicU32::new(0);
+
+        extern "C" fn tree_accessing_handler() {
+            // This should not deadlock — the tree lock must be released
+            // before callbacks are invoked.
+            let count = freya_tree_node_count();
+            if count > 0 {
+                SUCCESS.store(1, Ordering::SeqCst);
+            }
+        }
+
+        SUCCESS.store(0, Ordering::SeqCst);
+
+        let tag = c("div");
+        let click = c("click");
+        let node = freya_create_element(tag.as_ptr());
+        freya_add_event_listener(node, click.as_ptr(), tree_accessing_handler);
+
+        freya_dispatch_event(node, click.as_ptr());
+        assert_eq!(SUCCESS.load(Ordering::SeqCst), 1);
+
+        freya_destroy_element(node);
+    }
+
+    #[test]
+    #[serial]
+    fn test_window_integration_with_launch() {
+        // Verify that freya_launch (without freya-backend) creates the root
+        // and the builder callback can attach event listeners that dispatch.
+        freya_reset_tree();
+        freya_reset_windows();
+
+        static CLICK_FIRED: AtomicU32 = AtomicU32::new(0);
+
+        extern "C" fn on_click() {
+            CLICK_FIRED.fetch_add(1, Ordering::SeqCst);
+        }
+
+        extern "C" fn builder(root: *mut FreyaElement) {
+            let tag = CString::new("button").unwrap();
+            let click = CString::new("click").unwrap();
+            let btn = freya_create_element(tag.as_ptr());
+            freya_add_event_listener(btn, click.as_ptr(), on_click);
+            freya_append_child(root, btn);
+            freya_destroy_element(btn);
+        }
+
+        CLICK_FIRED.store(0, Ordering::SeqCst);
+
+        let title = c("Test");
+        freya_launch(title.as_ptr(), 800.0, 600.0, builder);
+
+        // The root should now exist with 1 child (the button)
+        assert_eq!(freya_tree_node_count(), 2);
+
+        // Find the button (first child of root) and dispatch a click
+        let root_id = {
+            let root = ROOT_NODE_ID.lock().unwrap();
+            *root
+        };
+        let root_handle = node_id_to_handle(root_id);
+        let btn_handle = freya_first_child(root_handle);
+        assert!(!btn_handle.is_null());
+
+        let click = c("click");
+        freya_dispatch_event(btn_handle, click.as_ptr());
+        assert_eq!(CLICK_FIRED.load(Ordering::SeqCst), 1);
+
+        freya_destroy_element(root_handle);
+        freya_destroy_element(btn_handle);
     }
 
     #[test]

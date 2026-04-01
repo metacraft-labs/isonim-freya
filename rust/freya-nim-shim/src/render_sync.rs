@@ -207,6 +207,10 @@ pub struct RenderNode {
     pub text: Option<String>,
     /// Whether this node has a "click" event listener.
     pub has_click_handler: bool,
+    /// Whether this node has an "input" event listener (keyboard input).
+    pub has_input_handler: bool,
+    /// All event listener names attached to this node (for introspection/testing).
+    pub event_names: Vec<String>,
     /// Children render nodes (recursive).
     pub children: Vec<RenderNode>,
 }
@@ -227,6 +231,8 @@ pub fn build_render_plan(tree: &Tree, root_id: NodeId) -> Option<RenderNode> {
     };
 
     let has_click_handler = node.event_listeners.contains_key("click");
+    let has_input_handler = node.event_listeners.contains_key("input");
+    let event_names: Vec<String> = node.event_listeners.keys().cloned().collect();
 
     let children: Vec<RenderNode> = node
         .children
@@ -240,6 +246,8 @@ pub fn build_render_plan(tree: &Tree, root_id: NodeId) -> Option<RenderNode> {
         styles,
         text,
         has_click_handler,
+        has_input_handler,
+        event_names,
         children,
     })
 }
@@ -368,9 +376,10 @@ pub mod freya_render {
         let color = s.color.clone().unwrap_or_default();
         let font_size = s.font_size.clone().unwrap_or_default();
 
-        // Wire up click handler if the shadow node has one
+        // Wire up event handlers if the shadow node has them
         let node_id = plan.node_id;
         let has_click = plan.has_click_handler;
+        let has_input = plan.has_input_handler;
 
         rsx! {
             rect {
@@ -389,6 +398,11 @@ pub mod freya_render {
                 onclick: move |_| {
                     if has_click {
                         dispatch_shadow_event(node_id, "click");
+                    }
+                },
+                onkeydown: move |_| {
+                    if has_input {
+                        dispatch_shadow_event(node_id, "input");
                     }
                 },
                 for (_i, child_el) in children_elements.into_iter().enumerate() {
@@ -500,7 +514,10 @@ pub mod freya_render {
     /// Dispatch an event to the shadow tree's event listeners.
     /// This is called from Freya event handlers to bridge back to the
     /// Nim-side callbacks.
-    fn dispatch_shadow_event(node_id: NodeId, event_name: &str) {
+    ///
+    /// The lock is released before calling callbacks to avoid deadlocks
+    /// (callbacks may mutate the tree via FFI).
+    pub fn dispatch_shadow_event(node_id: NodeId, event_name: &str) {
         let callbacks: Vec<extern "C" fn()> = {
             let tree = crate::lock_tree();
             if let Some(node) = tree.get(node_id) {
@@ -809,6 +826,8 @@ mod tests {
             styles: FreyaStyles::default(),
             text: None,
             has_click_handler: false,
+            has_input_handler: false,
+            event_names: vec![],
             children: vec![
                 RenderNode {
                     node_id: NodeId(2),
@@ -816,6 +835,8 @@ mod tests {
                     styles: FreyaStyles::default(),
                     text: Some("a".into()),
                     has_click_handler: false,
+                    has_input_handler: false,
+                    event_names: vec![],
                     children: vec![],
                 },
                 RenderNode {
@@ -824,18 +845,141 @@ mod tests {
                     styles: FreyaStyles::default(),
                     text: None,
                     has_click_handler: false,
+                    has_input_handler: false,
+                    event_names: vec![],
                     children: vec![RenderNode {
                         node_id: NodeId(4),
                         element_kind: FreyaElementKind::Label,
                         styles: FreyaStyles::default(),
                         text: Some("b".into()),
                         has_click_handler: false,
+                        has_input_handler: false,
+                        event_names: vec![],
                         children: vec![],
                     }],
                 },
             ],
         };
         assert_eq!(count_render_nodes(&plan), 4);
+    }
+
+    #[test]
+    fn test_build_render_plan_with_input_handler() {
+        let mut tree = Tree::new();
+        let mut node = Node::new_element("div");
+        extern "C" fn noop() {}
+        node.event_listeners
+            .entry("input".into())
+            .or_default()
+            .push(EventListener { callback: noop });
+        let id = tree.insert(node);
+
+        let plan = build_render_plan(&tree, id).unwrap();
+        assert!(plan.has_input_handler);
+        assert!(!plan.has_click_handler);
+        assert!(plan.event_names.contains(&"input".to_string()));
+    }
+
+    #[test]
+    fn test_build_render_plan_multiple_event_handlers() {
+        let mut tree = Tree::new();
+        let mut node = Node::new_element("button");
+        extern "C" fn noop() {}
+        node.event_listeners
+            .entry("click".into())
+            .or_default()
+            .push(EventListener { callback: noop });
+        node.event_listeners
+            .entry("input".into())
+            .or_default()
+            .push(EventListener { callback: noop });
+        node.event_listeners
+            .entry("hover".into())
+            .or_default()
+            .push(EventListener { callback: noop });
+        let id = tree.insert(node);
+
+        let plan = build_render_plan(&tree, id).unwrap();
+        assert!(plan.has_click_handler);
+        assert!(plan.has_input_handler);
+        assert_eq!(plan.event_names.len(), 3);
+        assert!(plan.event_names.contains(&"click".to_string()));
+        assert!(plan.event_names.contains(&"input".to_string()));
+        assert!(plan.event_names.contains(&"hover".to_string()));
+    }
+
+    #[test]
+    fn test_build_render_plan_no_handlers_by_default() {
+        let mut tree = Tree::new();
+        let node = Node::new_element("div");
+        let id = tree.insert(node);
+
+        let plan = build_render_plan(&tree, id).unwrap();
+        assert!(!plan.has_click_handler);
+        assert!(!plan.has_input_handler);
+        assert!(plan.event_names.is_empty());
+    }
+
+    #[test]
+    fn test_render_plan_preserves_event_handlers_in_children() {
+        let mut tree = Tree::new();
+        extern "C" fn noop() {}
+
+        let root = Node::new_element("root");
+        let root_id = tree.insert(root);
+
+        let mut btn = Node::new_element("button");
+        btn.event_listeners
+            .entry("click".into())
+            .or_default()
+            .push(EventListener { callback: noop });
+        let btn_id = tree.insert(btn);
+
+        let mut input = Node::new_element("div");
+        input
+            .event_listeners
+            .entry("input".into())
+            .or_default()
+            .push(EventListener { callback: noop });
+        let input_id = tree.insert(input);
+
+        tree.append_child(root_id, btn_id);
+        tree.append_child(root_id, input_id);
+
+        let plan = build_render_plan(&tree, root_id).unwrap();
+        assert!(!plan.has_click_handler);
+        assert!(!plan.has_input_handler);
+        assert_eq!(plan.children.len(), 2);
+        assert!(plan.children[0].has_click_handler);
+        assert!(!plan.children[0].has_input_handler);
+        assert!(!plan.children[1].has_click_handler);
+        assert!(plan.children[1].has_input_handler);
+    }
+
+    #[test]
+    fn test_repaint_flag_with_render_plan_rebuild() {
+        // Verify that after mutating the tree and rebuilding the render plan,
+        // the new plan reflects the changes.
+        let mut tree = Tree::new();
+        let root = Node::new_element("root");
+        let root_id = tree.insert(root);
+
+        let label = Node::new_element("label");
+        let label_id = tree.insert(label);
+        tree.append_child(root_id, label_id);
+
+        // Build initial plan
+        let plan1 = build_render_plan(&tree, root_id).unwrap();
+        assert_eq!(plan1.children.len(), 1);
+
+        // Mutate: add another child
+        let label2 = Node::new_element("label");
+        let label2_id = tree.insert(label2);
+        tree.append_child(root_id, label2_id);
+
+        // Rebuild plan — should now have 2 children
+        let plan2 = build_render_plan(&tree, root_id).unwrap();
+        assert_eq!(plan2.children.len(), 2);
     }
 
     #[test]

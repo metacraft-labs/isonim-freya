@@ -188,6 +188,11 @@ pub fn notify_focus(id: u32, focused: bool) {
     }
 }
 
+/// Get the title, width, and height of a window (for launching).
+pub fn window_launch_config(id: u32) -> Option<(String, f64, f64)> {
+    with_window(id, |w| (w.title.clone(), w.width, w.height))
+}
+
 /// Remove a window from the registry (cleanup).
 pub fn destroy_window(id: u32) {
     let mut windows = lock_windows();
