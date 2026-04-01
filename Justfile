@@ -38,8 +38,20 @@ test:
 test-cross:
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_cross_renderer tests/test_cross_renderer.nim
 
+# Run demo app tests (M6 — requires Rust shim and isonim)
+test-demo:
+    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --path:demos/task-manager/src --nimcache:nimcache/test_demo_app tests/test_demo_app.nim
+
+# Build the demo app (headless mode)
+demo-build:
+    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c --path:../isonim/src --nimcache:nimcache/demo_task_manager demos/task-manager/src/main.nim
+
+# Run the demo app (headless mode — prints interaction trace)
+demo-run:
+    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/demo_task_manager demos/task-manager/src/main.nim
+
 # Run all tests (Rust + Nim)
-test-all: rust-test test test-cross
+test-all: rust-test test test-cross test-demo
 
 # Generate Nim bindings from Rust shim using nbindgen
 generate-bindings:
