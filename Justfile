@@ -54,8 +54,12 @@ demo-run:
 test-integration:
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_render_integration tests/test_render_integration.nim
 
+# Run structural comparison tests (G4 — requires Rust shim and isonim)
+test-structural:
+    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_structural_comparison tests/test_structural_comparison.nim
+
 # Run all tests (Rust + Nim)
-test-all: rust-test test test-cross test-demo test-integration
+test-all: rust-test test test-cross test-demo test-integration test-structural
 
 # Generate Nim bindings from Rust shim using nbindgen
 generate-bindings:
