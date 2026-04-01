@@ -1,0 +1,11 @@
+[package]
+name = "freya-nim-shim"
+version = "0.1.0"
+edition = "2021"
+description = "C FFI shim exposing Freya operations for IsoNim's RendererBackend"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+freya = "0.3"
