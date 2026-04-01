@@ -20,7 +20,19 @@ nim-check:
 test:
     nim c -r --nimcache:nimcache/test_basic tests/test_basic.nim
 
+# Generate Nim bindings from Rust shim using nbindgen
+generate-bindings:
+    ./tools/generate_bindings.sh
+
+# Validate that Nim bindings match Rust exports
+check-bindings:
+    ./tools/check_bindings.sh
+
+# Check that the binding test compiles
+nim-check-bindings:
+    nim c --nimcache:nimcache/test_bindings tests/test_bindings.nim
+
 # Clean build artifacts
 clean:
-    rm -rf target nimcache tests/test_basic
+    rm -rf target nimcache tests/test_basic tests/test_bindings
     cd rust && cargo clean
