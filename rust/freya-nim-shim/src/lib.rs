@@ -19,6 +19,9 @@
 
 mod tree;
 mod window;
+mod render_sync;
+#[cfg(feature = "freya-backend")]
+mod freya_app;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -31,6 +34,11 @@ use window::{CloseCallback, FocusCallback, ResizeCallback};
 /// All extern "C" functions lock this to perform tree operations.
 static TREE: std::sync::LazyLock<Mutex<Tree>> =
     std::sync::LazyLock::new(|| Mutex::new(Tree::new()));
+
+/// Global root node ID for the render-sync bridge.
+/// Set by `freya_launch()` so the Freya component knows which node is the root.
+static ROOT_NODE_ID: std::sync::LazyLock<Mutex<NodeId>> =
+    std::sync::LazyLock::new(|| Mutex::new(NodeId::NULL));
 
 /// Lock the global tree, recovering from poison if needed.
 /// Since the tree is always in a valid (if inconsistent) state after a panic,
@@ -358,9 +366,7 @@ pub extern "C" fn freya_launch(
     height: f64,
     root_builder: RootBuilderCallback,
 ) {
-    let _title_str = unsafe { cstr_to_str(title) };
-    let _width = width;
-    let _height = height;
+    let title_str = unsafe { cstr_to_str(title) };
 
     // Create a root element in the shadow tree
     let root_node = Node::new_element("root");
@@ -368,16 +374,31 @@ pub extern "C" fn freya_launch(
         let mut tree = lock_tree();
         tree.insert(root_node)
     };
+
+    // Store the root ID globally so the Freya component can find it
+    {
+        let mut root = ROOT_NODE_ID.lock().unwrap_or_else(|p| p.into_inner());
+        *root = root_id;
+    }
+
     let root_handle = node_id_to_handle(root_id);
 
     // Call back to Nim so it can build the initial tree
     root_builder(root_handle);
 
-    // M2+: Here we would:
-    // 1. Read the shadow tree
-    // 2. Translate it to Freya's declarative model (RSX)
-    // 3. Call freya::launch_cfg() with the generated component
-    // 4. Set up a sync loop to push tree changes to Freya
+    // When the freya-backend feature is enabled, launch the actual Freya
+    // window with the shadow tree renderer as the root component.
+    #[cfg(feature = "freya-backend")]
+    {
+        freya_app::launch_freya_app(title_str, width, height);
+    }
+
+    // Without the feature, the function returns after building the shadow tree.
+    // This is the existing behavior used for testing and headless operation.
+    #[cfg(not(feature = "freya-backend"))]
+    {
+        let _ = title_str;
+    }
 }
 
 /// Trigger all event listeners for the given event on the given node.
@@ -464,6 +485,9 @@ pub extern "C" fn freya_destroy_tree(handle: *mut FreyaElement) {
 pub extern "C" fn freya_reset_tree() {
     let mut tree = lock_tree();
     *tree = Tree::new();
+    // Also reset the root node ID
+    let mut root = ROOT_NODE_ID.lock().unwrap_or_else(|p| p.into_inner());
+    *root = NodeId::NULL;
 }
 
 /// Get the number of nodes in the global tree (useful for debugging/testing).

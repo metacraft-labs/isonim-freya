@@ -12,10 +12,11 @@ default = []
 # Enable actual Freya rendering (requires Skia system deps).
 # Without this feature, the shim provides the shadow tree and extern "C" API
 # but the launch function does not start a real Freya window.
-freya-backend = ["freya"]
+freya-backend = ["freya", "tokio"]
 
 [dependencies]
 freya = { version = "0.3", optional = true }
+tokio = { version = "1", features = ["time", "rt"], optional = true }
 
 [dev-dependencies]
 serial_test = "3"
