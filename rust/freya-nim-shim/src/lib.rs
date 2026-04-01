@@ -18,12 +18,14 @@
 //! They are heap-allocated so the Nim side can hold them as opaque pointers.
 
 mod tree;
+mod window;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::Mutex;
 
 use tree::{EventListener, Node, NodeId, Tree};
+use window::{CloseCallback, FocusCallback, ResizeCallback};
 
 /// Global shadow tree protected by a mutex.
 /// All extern "C" functions lock this to perform tree operations.
@@ -122,6 +124,7 @@ pub extern "C" fn freya_append_child(parent: *mut FreyaElement, child: *mut Frey
     }
     let mut tree = lock_tree();
     tree.append_child(parent_id, child_id);
+    window::request_repaint();
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +147,7 @@ pub extern "C" fn freya_insert_before(
     }
     let mut tree = lock_tree();
     tree.insert_before(parent_id, child_id, ref_id);
+    window::request_repaint();
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +164,7 @@ pub extern "C" fn freya_remove_child(parent: *mut FreyaElement, child: *mut Frey
     }
     let mut tree = lock_tree();
     tree.remove_child(parent_id, child_id);
+    window::request_repaint();
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +188,7 @@ pub extern "C" fn freya_set_attribute(
     if let Some(n) = tree.get_mut(node_id) {
         n.attributes
             .insert(name_str.to_string(), value_str.to_string());
+        window::request_repaint();
     }
 }
 
@@ -201,6 +207,7 @@ pub extern "C" fn freya_remove_attribute(node: *mut FreyaElement, name: *const c
     let mut tree = lock_tree();
     if let Some(n) = tree.get_mut(node_id) {
         n.attributes.remove(name_str);
+        window::request_repaint();
     }
 }
 
@@ -219,6 +226,7 @@ pub extern "C" fn freya_set_text_content(node: *mut FreyaElement, text: *const c
     let mut tree = lock_tree();
     if let Some(n) = tree.get_mut(node_id) {
         n.set_text_content(text_str);
+        window::request_repaint();
     }
 }
 
@@ -243,6 +251,7 @@ pub extern "C" fn freya_set_style(
     if let Some(n) = tree.get_mut(node_id) {
         n.styles
             .insert(prop_str.to_string(), value_str.to_string());
+        window::request_repaint();
     }
 }
 
@@ -462,6 +471,158 @@ pub extern "C" fn freya_reset_tree() {
 pub extern "C" fn freya_tree_node_count() -> u64 {
     let tree = lock_tree();
     tree.len() as u64
+}
+
+// ---------------------------------------------------------------------------
+// Window management (M4)
+// ---------------------------------------------------------------------------
+
+/// Create a new window with the given title and initial size.
+/// Returns a window ID (> 0) on success, 0 on failure.
+#[no_mangle]
+pub extern "C" fn freya_create_window(
+    title: *const c_char,
+    width: f64,
+    height: f64,
+) -> u32 {
+    let title_str = unsafe { cstr_to_str(title) };
+    window::create_window(title_str, width, height)
+}
+
+/// Show a window (transition from Created to Visible state).
+///
+/// Without the `freya-backend` feature this just updates the internal state.
+/// With the feature enabled, this starts the Freya event loop for the window
+/// on a background thread.
+///
+/// Returns 1 on success, 0 if the window was not in Created state or not found.
+#[no_mangle]
+pub extern "C" fn freya_show_window(window_id: u32) -> u8 {
+    if window::show_window(window_id) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Request that a window be closed. If an on_close callback is registered
+/// and returns 0, the close is denied.
+/// Returns 1 if the window was closed, 0 if denied or not found.
+#[no_mangle]
+pub extern "C" fn freya_close_window(window_id: u32) -> u8 {
+    if window::close_window(window_id) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Destroy a window and remove it from the registry.
+#[no_mangle]
+pub extern "C" fn freya_destroy_window(window_id: u32) {
+    window::destroy_window(window_id);
+}
+
+/// Get the current state of a window.
+/// Returns: 0 = not found, 1 = Created, 2 = Visible, 3 = CloseRequested, 4 = Closed.
+#[no_mangle]
+pub extern "C" fn freya_window_state(window_id: u32) -> u8 {
+    match window::window_state(window_id) {
+        None => 0,
+        Some(window::WindowState::Created) => 1,
+        Some(window::WindowState::Visible) => 2,
+        Some(window::WindowState::CloseRequested) => 3,
+        Some(window::WindowState::Closed) => 4,
+    }
+}
+
+/// Get the current width of a window. Returns 0.0 if not found.
+#[no_mangle]
+pub extern "C" fn freya_window_width(window_id: u32) -> f64 {
+    window::window_size(window_id)
+        .map(|(w, _)| w)
+        .unwrap_or(0.0)
+}
+
+/// Get the current height of a window. Returns 0.0 if not found.
+#[no_mangle]
+pub extern "C" fn freya_window_height(window_id: u32) -> f64 {
+    window::window_size(window_id)
+        .map(|(_, h)| h)
+        .unwrap_or(0.0)
+}
+
+/// Request a repaint of the window. This signals that the shadow tree has
+/// changed and the window should re-render on the next frame.
+#[no_mangle]
+pub extern "C" fn freya_request_repaint() {
+    window::request_repaint();
+}
+
+/// Check if a repaint has been requested (and clear the flag).
+/// Returns 1 if a repaint was pending, 0 otherwise.
+#[no_mangle]
+pub extern "C" fn freya_take_repaint_request() -> u8 {
+    if window::take_repaint_request() {
+        1
+    } else {
+        0
+    }
+}
+
+/// Register a callback for window resize events.
+/// The callback receives (width: f64, height: f64).
+#[no_mangle]
+pub extern "C" fn freya_on_resize(
+    window_id: u32,
+    callback: ResizeCallback,
+) {
+    window::with_window_mut(window_id, |w| {
+        w.on_resize = Some(callback);
+    });
+}
+
+/// Register a callback for window focus events.
+/// The callback receives (focused: u8) where 1 = focused, 0 = unfocused.
+#[no_mangle]
+pub extern "C" fn freya_on_focus(
+    window_id: u32,
+    callback: FocusCallback,
+) {
+    window::with_window_mut(window_id, |w| {
+        w.on_focus = Some(callback);
+    });
+}
+
+/// Register a callback for window close requests.
+/// The callback should return 1 to allow close, 0 to prevent it.
+#[no_mangle]
+pub extern "C" fn freya_on_close(
+    window_id: u32,
+    callback: CloseCallback,
+) {
+    window::with_window_mut(window_id, |w| {
+        w.on_close = Some(callback);
+    });
+}
+
+/// Simulate a resize event on a window (for testing / event bridging).
+#[no_mangle]
+pub extern "C" fn freya_notify_resize(window_id: u32, width: f64, height: f64) {
+    window::notify_resize(window_id, width, height);
+}
+
+/// Simulate a focus event on a window (for testing / event bridging).
+/// `focused`: 1 = gained focus, 0 = lost focus.
+#[no_mangle]
+pub extern "C" fn freya_notify_focus(window_id: u32, focused: u8) {
+    window::notify_focus(window_id, focused != 0);
+}
+
+/// Reset all windows (for testing).
+#[no_mangle]
+pub extern "C" fn freya_reset_windows() {
+    window::reset_windows();
 }
 
 // ---------------------------------------------------------------------------
@@ -741,6 +902,140 @@ mod tests {
 
         freya_destroy_element(n1);
         freya_destroy_element(n2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_create_window() {
+        freya_reset_windows();
+        let title = c("My Window");
+        let id = freya_create_window(title.as_ptr(), 800.0, 600.0);
+        assert!(id > 0);
+        assert_eq!(freya_window_state(id), 1); // Created
+        assert_eq!(freya_window_width(id), 800.0);
+        assert_eq!(freya_window_height(id), 600.0);
+        freya_destroy_window(id);
+    }
+
+    #[test]
+    #[serial]
+    fn test_show_and_close_window() {
+        freya_reset_windows();
+        let title = c("Test Window");
+        let id = freya_create_window(title.as_ptr(), 640.0, 480.0);
+        assert_eq!(freya_show_window(id), 1);
+        assert_eq!(freya_window_state(id), 2); // Visible
+        // Cannot show again
+        assert_eq!(freya_show_window(id), 0);
+        // Close
+        assert_eq!(freya_close_window(id), 1);
+        assert_eq!(freya_window_state(id), 4); // Closed
+        freya_destroy_window(id);
+    }
+
+    #[test]
+    #[serial]
+    fn test_window_lifecycle_callbacks() {
+        freya_reset_windows();
+        let title = c("Callback Test");
+        let id = freya_create_window(title.as_ptr(), 800.0, 600.0);
+
+        static RESIZE_CALLED: AtomicU32 = AtomicU32::new(0);
+        static FOCUS_CALLED: AtomicU32 = AtomicU32::new(0);
+
+        extern "C" fn on_resize(_w: f64, _h: f64) {
+            RESIZE_CALLED.fetch_add(1, Ordering::SeqCst);
+        }
+        extern "C" fn on_focus(_f: u8) {
+            FOCUS_CALLED.fetch_add(1, Ordering::SeqCst);
+        }
+        extern "C" fn deny_close() -> u8 {
+            0
+        }
+
+        RESIZE_CALLED.store(0, Ordering::SeqCst);
+        FOCUS_CALLED.store(0, Ordering::SeqCst);
+
+        freya_on_resize(id, on_resize);
+        freya_on_focus(id, on_focus);
+        freya_on_close(id, deny_close);
+
+        freya_show_window(id);
+
+        // Trigger events
+        freya_notify_resize(id, 1024.0, 768.0);
+        assert_eq!(RESIZE_CALLED.load(Ordering::SeqCst), 1);
+        assert_eq!(freya_window_width(id), 1024.0);
+        assert_eq!(freya_window_height(id), 768.0);
+
+        freya_notify_focus(id, 1);
+        assert_eq!(FOCUS_CALLED.load(Ordering::SeqCst), 1);
+
+        // Close should be denied
+        assert_eq!(freya_close_window(id), 0);
+        assert_eq!(freya_window_state(id), 2); // Still Visible
+
+        freya_destroy_window(id);
+    }
+
+    #[test]
+    #[serial]
+    fn test_repaint_on_tree_mutation() {
+        freya_reset_tree();
+        freya_reset_windows();
+        // Clear any pending repaint
+        freya_take_repaint_request();
+
+        let tag = c("rect");
+        let parent = freya_create_element(tag.as_ptr());
+        // create_element does not request repaint (element isn't visible yet)
+        // but append_child does
+        let child = freya_create_element(tag.as_ptr());
+        freya_take_repaint_request(); // clear
+
+        freya_append_child(parent, child);
+        assert_eq!(freya_take_repaint_request(), 1); // repaint requested
+
+        let name = c("width");
+        let value = c("100");
+        freya_set_attribute(parent, name.as_ptr(), value.as_ptr());
+        assert_eq!(freya_take_repaint_request(), 1);
+
+        let prop = c("background");
+        let val = c("red");
+        freya_set_style(parent, prop.as_ptr(), val.as_ptr());
+        assert_eq!(freya_take_repaint_request(), 1);
+
+        let text = c("hello");
+        freya_set_text_content(parent, text.as_ptr());
+        assert_eq!(freya_take_repaint_request(), 1);
+
+        freya_remove_child(parent, child);
+        assert_eq!(freya_take_repaint_request(), 1);
+
+        // No more pending
+        assert_eq!(freya_take_repaint_request(), 0);
+
+        freya_destroy_element(parent);
+        freya_destroy_element(child);
+    }
+
+    #[test]
+    #[serial]
+    fn test_window_not_found() {
+        freya_reset_windows();
+        assert_eq!(freya_window_state(999), 0); // not found
+        assert_eq!(freya_window_width(999), 0.0);
+        assert_eq!(freya_window_height(999), 0.0);
+        assert_eq!(freya_show_window(999), 0);
+        assert_eq!(freya_close_window(999), 0);
+        // These should not crash
+        freya_destroy_window(999);
+        freya_on_resize(999, { extern "C" fn noop(_: f64, _: f64) {} noop });
+        freya_on_focus(999, { extern "C" fn noop(_: u8) {} noop });
+        freya_on_close(999, { extern "C" fn noop() -> u8 { 1 } noop });
+        freya_notify_resize(999, 100.0, 100.0);
+        freya_notify_focus(999, 1);
     }
 
     #[test]

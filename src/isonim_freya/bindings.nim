@@ -4,9 +4,9 @@
 ## rust/freya-nim-shim/src/lib.rs.
 
 type
-  FreyaElementObj {.importc: "FreyaElement", header: "".} = object
-  FreyaElement* = ptr FreyaElementObj
+  FreyaElement* = pointer
     ## Opaque handle to a Freya element managed by the Rust shim.
+    ## The actual layout is a Rust struct; Nim only holds a pointer to it.
 
 const shimLib = "libfreya_nim_shim.so"  # TODO: platform-specific (.dylib on macOS)
 
@@ -71,6 +71,58 @@ proc freya_destroy_element*(handle: FreyaElement)
 
 proc freya_destroy_tree*(handle: FreyaElement)
   {.importc: "freya_destroy_tree".}
+
+# --- Window management (M4) ---
+
+type
+  ResizeCallback* = proc(width, height: cdouble) {.cdecl.}
+  FocusCallback* = proc(focused: uint8) {.cdecl.}
+  CloseCallback* = proc(): uint8 {.cdecl.}
+
+proc freya_create_window*(title: cstring; width, height: cdouble): uint32
+  {.importc: "freya_create_window".}
+
+proc freya_show_window*(window_id: uint32): uint8
+  {.importc: "freya_show_window".}
+
+proc freya_close_window*(window_id: uint32): uint8
+  {.importc: "freya_close_window".}
+
+proc freya_destroy_window*(window_id: uint32)
+  {.importc: "freya_destroy_window".}
+
+proc freya_window_state*(window_id: uint32): uint8
+  {.importc: "freya_window_state".}
+
+proc freya_window_width*(window_id: uint32): cdouble
+  {.importc: "freya_window_width".}
+
+proc freya_window_height*(window_id: uint32): cdouble
+  {.importc: "freya_window_height".}
+
+proc freya_request_repaint*()
+  {.importc: "freya_request_repaint".}
+
+proc freya_take_repaint_request*(): uint8
+  {.importc: "freya_take_repaint_request".}
+
+proc freya_on_resize*(window_id: uint32; callback: ResizeCallback)
+  {.importc: "freya_on_resize".}
+
+proc freya_on_focus*(window_id: uint32; callback: FocusCallback)
+  {.importc: "freya_on_focus".}
+
+proc freya_on_close*(window_id: uint32; callback: CloseCallback)
+  {.importc: "freya_on_close".}
+
+proc freya_notify_resize*(window_id: uint32; width, height: cdouble)
+  {.importc: "freya_notify_resize".}
+
+proc freya_notify_focus*(window_id: uint32; focused: uint8)
+  {.importc: "freya_notify_focus".}
+
+proc freya_reset_windows*()
+  {.importc: "freya_reset_windows".}
 
 # --- Debugging / testing ---
 
