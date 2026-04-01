@@ -1651,6 +1651,7 @@ name = "freya-nim-shim"
 version = "0.1.0"
 dependencies = [
  "freya",
+ "serde_json",
  "serial_test",
  "tokio",
 ]

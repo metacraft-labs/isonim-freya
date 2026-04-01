@@ -50,8 +50,12 @@ demo-build:
 demo-run:
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/demo_task_manager demos/task-manager/src/main.nim
 
+# Run render integration tests (G3-F — requires Rust shim and isonim)
+test-integration:
+    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_render_integration tests/test_render_integration.nim
+
 # Run all tests (Rust + Nim)
-test-all: rust-test test test-cross test-demo
+test-all: rust-test test test-cross test-demo test-integration
 
 # Generate Nim bindings from Rust shim using nbindgen
 generate-bindings:

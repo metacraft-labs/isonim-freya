@@ -1014,3 +1014,703 @@ mod tests {
         }
     }
 }
+
+/// Integration tests that exercise the full FFI → shadow tree → render plan pipeline.
+///
+/// Unlike the unit tests above (which construct Tree/Node directly), these tests
+/// use the actual `extern "C"` FFI functions — the same functions that Nim calls.
+/// They then build a render plan and verify the Freya element mapping is correct.
+///
+/// This is the key layer that was previously untested: the tests verify that
+/// elements created through the C FFI produce correct render plans with proper
+/// Freya element types, styles, and event handler wiring.
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::{
+        freya_add_event_listener, freya_append_child, freya_create_element,
+        freya_create_text_node, freya_destroy_element, freya_dispatch_event,
+        freya_remove_child, freya_render_plan_element_count, freya_render_plan_json,
+        freya_free_string, freya_reset_tree, freya_set_attribute, freya_set_style,
+        freya_set_text_content, freya_verify_render_plan, lock_tree, render_plan_to_json,
+        FreyaElement as FreyaHandle,
+    };
+    use serial_test::serial;
+    use std::ffi::{CStr, CString};
+    use std::os::raw::c_char;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn c(s: &str) -> CString {
+        CString::new(s).unwrap()
+    }
+
+    /// Helper: get the render plan as a parsed JSON value via the FFI function.
+    fn get_plan_json(root: *mut FreyaHandle) -> serde_json::Value {
+        unsafe {
+            let json_ptr = freya_render_plan_json(root);
+            assert!(!json_ptr.is_null(), "render plan JSON should not be null");
+            let json_str = CStr::from_ptr(json_ptr).to_str().unwrap().to_string();
+            freya_free_string(json_ptr);
+            serde_json::from_str(&json_str).expect("render plan should be valid JSON")
+        }
+    }
+
+    /// Helper: get the render plan directly (Tree API, not FFI).
+    fn get_plan_direct(root: *mut FreyaHandle) -> RenderNode {
+        let node_id = crate::tree::NodeId(unsafe { (*root).node_id });
+        let tree = lock_tree();
+        build_render_plan(&tree, node_id).expect("render plan should exist")
+    }
+
+    // ===================================================================
+    // Full pipeline: counter app
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_full_pipeline_counter_app() {
+        unsafe {
+            freya_reset_tree();
+
+            let root = freya_create_element(c("div").as_ptr());
+            let label = freya_create_element(c("span").as_ptr());
+            let text = freya_create_text_node(c("Count: 0").as_ptr());
+            freya_append_child(label, text);
+            freya_append_child(root, label);
+
+            let button = freya_create_element(c("button").as_ptr());
+            let btn_text = freya_create_text_node(c("+").as_ptr());
+            freya_append_child(button, btn_text);
+
+            extern "C" fn on_click() {}
+            freya_add_event_listener(button, c("click").as_ptr(), on_click);
+            freya_append_child(root, button);
+
+            // Verify via direct render plan (Tree API)
+            let plan = get_plan_direct(root);
+            assert_eq!(plan.element_kind, FreyaElementKind::Rect); // div → Rect
+            assert_eq!(plan.children.len(), 2);
+
+            // span → Label
+            assert_eq!(plan.children[0].element_kind, FreyaElementKind::Label);
+            // text node → Label with text
+            assert_eq!(plan.children[0].children[0].element_kind, FreyaElementKind::Label);
+            assert_eq!(plan.children[0].children[0].text.as_deref(), Some("Count: 0"));
+
+            // button → Rect with click handler
+            assert_eq!(plan.children[1].element_kind, FreyaElementKind::Rect);
+            assert!(plan.children[1].has_click_handler);
+            assert_eq!(plan.children[1].children[0].text.as_deref(), Some("+"));
+
+            // Verify via JSON FFI (the path Nim uses)
+            let json = get_plan_json(root);
+            assert_eq!(json["kind"], "Rect");
+            assert_eq!(json["children"].as_array().unwrap().len(), 2);
+            assert_eq!(json["children"][0]["kind"], "Label");
+            assert_eq!(json["children"][0]["children"][0]["text"], "Count: 0");
+            assert_eq!(json["children"][1]["kind"], "Rect");
+            assert_eq!(json["children"][1]["has_click_handler"], true);
+
+            // Element count
+            assert_eq!(freya_render_plan_element_count(root), 5);
+            assert_eq!(freya_verify_render_plan(root), 1);
+
+            freya_destroy_element(root);
+            freya_destroy_element(label);
+            freya_destroy_element(text);
+            freya_destroy_element(button);
+            freya_destroy_element(btn_text);
+        }
+    }
+
+    // ===================================================================
+    // Style propagation through render plan
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_render_plan_styles_via_ffi() {
+        unsafe {
+            freya_reset_tree();
+
+            let div = freya_create_element(c("div").as_ptr());
+            freya_set_style(div, c("background-color").as_ptr(), c("red").as_ptr());
+            freya_set_style(div, c("width").as_ptr(), c("200px").as_ptr());
+            freya_set_style(div, c("flex-direction").as_ptr(), c("row").as_ptr());
+            freya_set_style(div, c("font-size").as_ptr(), c("16").as_ptr());
+            freya_set_style(div, c("border-radius").as_ptr(), c("8").as_ptr());
+            freya_set_style(div, c("padding").as_ptr(), c("10").as_ptr());
+
+            let plan = get_plan_direct(div);
+            assert_eq!(plan.styles.background.as_deref(), Some("red"));
+            assert_eq!(plan.styles.width.as_deref(), Some("200px"));
+            assert_eq!(plan.styles.direction.as_deref(), Some("horizontal"));
+            assert_eq!(plan.styles.font_size.as_deref(), Some("16"));
+            assert_eq!(plan.styles.corner_radius.as_deref(), Some("8"));
+            assert_eq!(plan.styles.padding.as_deref(), Some("10"));
+
+            // Also verify via JSON
+            let json = get_plan_json(div);
+            assert_eq!(json["styles"]["background"], "red");
+            assert_eq!(json["styles"]["width"], "200px");
+            assert_eq!(json["styles"]["direction"], "horizontal");
+
+            freya_destroy_element(div);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_render_plan_styles_column_direction() {
+        unsafe {
+            freya_reset_tree();
+            let div = freya_create_element(c("div").as_ptr());
+            freya_set_style(div, c("flex-direction").as_ptr(), c("column").as_ptr());
+            let plan = get_plan_direct(div);
+            assert_eq!(plan.styles.direction.as_deref(), Some("vertical"));
+            freya_destroy_element(div);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_render_plan_styles_from_attributes_fallback() {
+        unsafe {
+            freya_reset_tree();
+            let div = freya_create_element(c("rect").as_ptr());
+            freya_set_attribute(div, c("width").as_ptr(), c("300").as_ptr());
+            freya_set_attribute(div, c("height").as_ptr(), c("200").as_ptr());
+            let plan = get_plan_direct(div);
+            assert_eq!(plan.styles.width.as_deref(), Some("300"));
+            assert_eq!(plan.styles.height.as_deref(), Some("200"));
+            freya_destroy_element(div);
+        }
+    }
+
+    // ===================================================================
+    // Event handler wiring through render plan
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_render_plan_event_handlers_via_ffi() {
+        unsafe {
+            freya_reset_tree();
+
+            static CLICKED: AtomicU32 = AtomicU32::new(0);
+            extern "C" fn on_click() {
+                CLICKED.fetch_add(1, Ordering::SeqCst);
+            }
+            CLICKED.store(0, Ordering::SeqCst);
+
+            let button = freya_create_element(c("button").as_ptr());
+            freya_add_event_listener(button, c("click").as_ptr(), on_click);
+
+            let plan = get_plan_direct(button);
+            assert!(plan.has_click_handler);
+            assert!(!plan.has_input_handler);
+
+            // Dispatch through the shadow tree — verify callback fires
+            freya_dispatch_event(button, c("click").as_ptr());
+            assert_eq!(CLICKED.load(Ordering::SeqCst), 1);
+
+            freya_destroy_element(button);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_render_plan_multiple_event_types_via_ffi() {
+        unsafe {
+            freya_reset_tree();
+            extern "C" fn noop() {}
+
+            let node = freya_create_element(c("div").as_ptr());
+            freya_add_event_listener(node, c("click").as_ptr(), noop);
+            freya_add_event_listener(node, c("input").as_ptr(), noop);
+            freya_add_event_listener(node, c("hover").as_ptr(), noop);
+
+            let plan = get_plan_direct(node);
+            assert!(plan.has_click_handler);
+            assert!(plan.has_input_handler);
+            assert_eq!(plan.event_names.len(), 3);
+            assert!(plan.event_names.contains(&"click".to_string()));
+            assert!(plan.event_names.contains(&"input".to_string()));
+            assert!(plan.event_names.contains(&"hover".to_string()));
+
+            freya_destroy_element(node);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_render_plan_no_handlers_by_default_via_ffi() {
+        unsafe {
+            freya_reset_tree();
+            let div = freya_create_element(c("div").as_ptr());
+            let plan = get_plan_direct(div);
+            assert!(!plan.has_click_handler);
+            assert!(!plan.has_input_handler);
+            assert!(plan.event_names.is_empty());
+            freya_destroy_element(div);
+        }
+    }
+
+    // ===================================================================
+    // Full demo app render plan (task manager)
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_full_demo_app_render_plan() {
+        unsafe {
+            freya_reset_tree();
+
+            let app = freya_create_element(c("div").as_ptr());
+
+            // Header
+            let header = freya_create_element(c("header").as_ptr());
+            let title = freya_create_element(c("h1").as_ptr());
+            let title_text = freya_create_text_node(c("Task Manager").as_ptr());
+            freya_append_child(title, title_text);
+            freya_append_child(header, title);
+            freya_append_child(app, header);
+
+            // Input area
+            let input_area = freya_create_element(c("div").as_ptr());
+            let input = freya_create_element(c("input").as_ptr());
+            let add_btn = freya_create_element(c("button").as_ptr());
+            let add_text = freya_create_text_node(c("Add").as_ptr());
+            extern "C" fn on_add() {}
+            freya_add_event_listener(add_btn, c("click").as_ptr(), on_add);
+            freya_append_child(add_btn, add_text);
+            freya_append_child(input_area, input);
+            freya_append_child(input_area, add_btn);
+            freya_append_child(app, input_area);
+
+            // Task list
+            let task_list = freya_create_element(c("ul").as_ptr());
+            let mut task_handles = Vec::new();
+            for task_name in &["Design API", "Write tests"] {
+                let li = freya_create_element(c("li").as_ptr());
+                let span = freya_create_element(c("span").as_ptr());
+                let text = freya_create_text_node(c(task_name).as_ptr());
+                freya_append_child(span, text);
+                freya_append_child(li, span);
+                freya_append_child(task_list, li);
+                task_handles.push((li, span, text));
+            }
+            freya_append_child(app, task_list);
+
+            // Footer
+            let footer = freya_create_element(c("footer").as_ptr());
+            let count_span = freya_create_element(c("span").as_ptr());
+            let count_text = freya_create_text_node(c("2 tasks").as_ptr());
+            freya_append_child(count_span, count_text);
+            freya_append_child(footer, count_span);
+            freya_append_child(app, footer);
+
+            // Verify render plan
+            let plan = get_plan_direct(app);
+
+            assert_eq!(plan.element_kind, FreyaElementKind::Rect);
+            assert_eq!(plan.children.len(), 4);
+
+            // header → Rect
+            assert_eq!(plan.children[0].element_kind, FreyaElementKind::Rect);
+            // h1 → Label
+            assert_eq!(plan.children[0].children[0].element_kind, FreyaElementKind::Label);
+
+            // input area → Rect with 2 children
+            assert_eq!(plan.children[1].element_kind, FreyaElementKind::Rect);
+            assert_eq!(plan.children[1].children.len(), 2);
+            // add button → Rect with click handler
+            assert!(plan.children[1].children[1].has_click_handler);
+
+            // task list → Rect with 2 children
+            assert_eq!(plan.children[2].element_kind, FreyaElementKind::Rect);
+            assert_eq!(plan.children[2].children.len(), 2);
+
+            // First task: li → Rect > span → Label > text
+            assert_eq!(plan.children[2].children[0].element_kind, FreyaElementKind::Rect);
+            assert_eq!(
+                plan.children[2].children[0].children[0].element_kind,
+                FreyaElementKind::Label
+            );
+            assert_eq!(
+                plan.children[2].children[0].children[0].children[0]
+                    .text
+                    .as_deref(),
+                Some("Design API")
+            );
+
+            // Second task
+            assert_eq!(
+                plan.children[2].children[1].children[0].children[0]
+                    .text
+                    .as_deref(),
+                Some("Write tests")
+            );
+
+            // footer → Rect > span → Label
+            assert_eq!(plan.children[3].element_kind, FreyaElementKind::Rect);
+            assert_eq!(
+                plan.children[3].children[0].element_kind,
+                FreyaElementKind::Label
+            );
+            assert_eq!(
+                plan.children[3].children[0].children[0].text.as_deref(),
+                Some("2 tasks")
+            );
+
+            // Total element count
+            assert_eq!(freya_render_plan_element_count(app), 18);
+
+            // Clean up
+            freya_destroy_element(app);
+            freya_destroy_element(header);
+            freya_destroy_element(title);
+            freya_destroy_element(title_text);
+            freya_destroy_element(input_area);
+            freya_destroy_element(input);
+            freya_destroy_element(add_btn);
+            freya_destroy_element(add_text);
+            freya_destroy_element(task_list);
+            freya_destroy_element(footer);
+            freya_destroy_element(count_span);
+            freya_destroy_element(count_text);
+            for (li, span, text) in task_handles {
+                freya_destroy_element(li);
+                freya_destroy_element(span);
+                freya_destroy_element(text);
+            }
+        }
+    }
+
+    // ===================================================================
+    // Render plan after mutations
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_render_plan_after_adding_child() {
+        unsafe {
+            freya_reset_tree();
+            let root = freya_create_element(c("div").as_ptr());
+            let label1 = freya_create_element(c("span").as_ptr());
+            freya_append_child(root, label1);
+
+            let plan1 = get_plan_direct(root);
+            assert_eq!(plan1.children.len(), 1);
+            assert_eq!(freya_render_plan_element_count(root), 2);
+
+            let label2 = freya_create_element(c("span").as_ptr());
+            freya_append_child(root, label2);
+
+            let plan2 = get_plan_direct(root);
+            assert_eq!(plan2.children.len(), 2);
+            assert_eq!(freya_render_plan_element_count(root), 3);
+
+            freya_destroy_element(root);
+            freya_destroy_element(label1);
+            freya_destroy_element(label2);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_render_plan_after_removing_child() {
+        unsafe {
+            freya_reset_tree();
+            let root = freya_create_element(c("div").as_ptr());
+            let c1 = freya_create_element(c("span").as_ptr());
+            let c2 = freya_create_element(c("span").as_ptr());
+            freya_append_child(root, c1);
+            freya_append_child(root, c2);
+            assert_eq!(freya_render_plan_element_count(root), 3);
+
+            freya_remove_child(root, c1);
+            let plan = get_plan_direct(root);
+            assert_eq!(plan.children.len(), 1);
+            assert_eq!(freya_render_plan_element_count(root), 2);
+
+            freya_destroy_element(root);
+            freya_destroy_element(c1);
+            freya_destroy_element(c2);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_render_plan_after_text_update() {
+        unsafe {
+            freya_reset_tree();
+            let root = freya_create_element(c("div").as_ptr());
+            let text_node = freya_create_text_node(c("initial").as_ptr());
+            freya_append_child(root, text_node);
+
+            let plan1 = get_plan_direct(root);
+            assert_eq!(plan1.children[0].text.as_deref(), Some("initial"));
+
+            freya_set_text_content(text_node, c("updated").as_ptr());
+
+            let plan2 = get_plan_direct(root);
+            assert_eq!(plan2.children[0].text.as_deref(), Some("updated"));
+
+            freya_destroy_element(root);
+            freya_destroy_element(text_node);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_render_plan_after_style_change() {
+        unsafe {
+            freya_reset_tree();
+            let div = freya_create_element(c("div").as_ptr());
+            freya_set_style(div, c("background").as_ptr(), c("red").as_ptr());
+
+            let plan1 = get_plan_direct(div);
+            assert_eq!(plan1.styles.background.as_deref(), Some("red"));
+
+            freya_set_style(div, c("background").as_ptr(), c("blue").as_ptr());
+
+            let plan2 = get_plan_direct(div);
+            assert_eq!(plan2.styles.background.as_deref(), Some("blue"));
+
+            freya_destroy_element(div);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_render_plan_after_adding_event_handler() {
+        unsafe {
+            freya_reset_tree();
+            let div = freya_create_element(c("div").as_ptr());
+
+            let plan1 = get_plan_direct(div);
+            assert!(!plan1.has_click_handler);
+
+            extern "C" fn noop() {}
+            freya_add_event_listener(div, c("click").as_ptr(), noop);
+
+            let plan2 = get_plan_direct(div);
+            assert!(plan2.has_click_handler);
+
+            freya_destroy_element(div);
+        }
+    }
+
+    // ===================================================================
+    // Tag classification through FFI → render plan
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_tag_classification_through_ffi() {
+        let test_cases: Vec<(&str, FreyaElementKind)> = vec![
+            ("div", FreyaElementKind::Rect),
+            ("rect", FreyaElementKind::Rect),
+            ("section", FreyaElementKind::Rect),
+            ("header", FreyaElementKind::Rect),
+            ("footer", FreyaElementKind::Rect),
+            ("button", FreyaElementKind::Rect),
+            ("span", FreyaElementKind::Label),
+            ("label", FreyaElementKind::Label),
+            ("h1", FreyaElementKind::Label),
+            ("a", FreyaElementKind::Label),
+            ("strong", FreyaElementKind::Label),
+            ("p", FreyaElementKind::Paragraph),
+            ("paragraph", FreyaElementKind::Paragraph),
+            ("pre", FreyaElementKind::Paragraph),
+            ("img", FreyaElementKind::Image),
+            ("image", FreyaElementKind::Image),
+            ("svg", FreyaElementKind::Svg),
+        ];
+
+        for (tag, expected_kind) in test_cases {
+            unsafe {
+                freya_reset_tree();
+                let elem = freya_create_element(c(tag).as_ptr());
+                let plan = get_plan_direct(elem);
+                assert_eq!(
+                    plan.element_kind, expected_kind,
+                    "Tag '{}' should classify as {:?}",
+                    tag, expected_kind
+                );
+                freya_destroy_element(elem);
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_text_node_classifies_as_label_via_ffi() {
+        unsafe {
+            freya_reset_tree();
+            let text = freya_create_text_node(c("hello").as_ptr());
+            let plan = get_plan_direct(text);
+            assert_eq!(plan.element_kind, FreyaElementKind::Label);
+            assert_eq!(plan.text.as_deref(), Some("hello"));
+            freya_destroy_element(text);
+        }
+    }
+
+    // ===================================================================
+    // Null / edge cases
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_render_plan_null_handle() {
+        unsafe {
+            let json = freya_render_plan_json(std::ptr::null_mut());
+            assert!(json.is_null());
+            assert_eq!(freya_render_plan_element_count(std::ptr::null_mut()), 0);
+            assert_eq!(freya_verify_render_plan(std::ptr::null_mut()), 0);
+        }
+    }
+
+    // ===================================================================
+    // Child handlers preserved in plan
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_render_plan_child_handlers_preserved() {
+        unsafe {
+            freya_reset_tree();
+            extern "C" fn on_click() {}
+            extern "C" fn on_input() {}
+
+            let root = freya_create_element(c("div").as_ptr());
+            let btn = freya_create_element(c("button").as_ptr());
+            freya_add_event_listener(btn, c("click").as_ptr(), on_click);
+            let input_div = freya_create_element(c("div").as_ptr());
+            freya_add_event_listener(input_div, c("input").as_ptr(), on_input);
+
+            freya_append_child(root, btn);
+            freya_append_child(root, input_div);
+
+            let plan = get_plan_direct(root);
+            assert!(!plan.has_click_handler);
+            assert!(!plan.has_input_handler);
+            assert!(plan.children[0].has_click_handler);
+            assert!(!plan.children[0].has_input_handler);
+            assert!(!plan.children[1].has_click_handler);
+            assert!(plan.children[1].has_input_handler);
+
+            freya_destroy_element(root);
+            freya_destroy_element(btn);
+            freya_destroy_element(input_div);
+        }
+    }
+
+    // ===================================================================
+    // Deep tree render plan
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_render_plan_deep_nested_tree_via_ffi() {
+        unsafe {
+            freya_reset_tree();
+            let root = freya_create_element(c("root").as_ptr());
+            let div = freya_create_element(c("div").as_ptr());
+            let span = freya_create_element(c("span").as_ptr());
+            let text = freya_create_text_node(c("deep").as_ptr());
+
+            freya_append_child(span, text);
+            freya_append_child(div, span);
+            freya_append_child(root, div);
+
+            let plan = get_plan_direct(root);
+            assert_eq!(count_render_nodes(&plan), 4);
+            assert_eq!(plan.children[0].children[0].children[0].text.as_deref(), Some("deep"));
+
+            freya_destroy_element(root);
+            freya_destroy_element(div);
+            freya_destroy_element(span);
+            freya_destroy_element(text);
+        }
+    }
+
+    // ===================================================================
+    // Event dispatch + plan rebuild (simulates reactive update)
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_event_dispatch_then_rebuild_plan() {
+        unsafe {
+            freya_reset_tree();
+
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            COUNTER.store(0, Ordering::SeqCst);
+            extern "C" fn increment() {
+                COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+
+            let root = freya_create_element(c("div").as_ptr());
+            let btn = freya_create_element(c("button").as_ptr());
+            let label = freya_create_text_node(c("Count: 0").as_ptr());
+            freya_add_event_listener(btn, c("click").as_ptr(), increment);
+            freya_append_child(root, label);
+            freya_append_child(root, btn);
+
+            // Initial plan
+            let plan1 = get_plan_direct(root);
+            assert_eq!(plan1.children[0].text.as_deref(), Some("Count: 0"));
+
+            // Simulate click
+            freya_dispatch_event(btn, c("click").as_ptr());
+            assert_eq!(COUNTER.load(Ordering::SeqCst), 1);
+
+            // Simulate reactive update
+            freya_set_text_content(label, c("Count: 1").as_ptr());
+
+            // Rebuild plan — should reflect the mutation
+            let plan2 = get_plan_direct(root);
+            assert_eq!(plan2.children[0].text.as_deref(), Some("Count: 1"));
+
+            freya_destroy_element(root);
+            freya_destroy_element(btn);
+            freya_destroy_element(label);
+        }
+    }
+
+    // ===================================================================
+    // JSON serialization round-trip
+    // ===================================================================
+
+    #[test]
+    #[serial]
+    fn test_render_plan_json_round_trip() {
+        unsafe {
+            freya_reset_tree();
+            let div = freya_create_element(c("div").as_ptr());
+            freya_set_style(div, c("background").as_ptr(), c("red").as_ptr());
+            let span = freya_create_element(c("span").as_ptr());
+            let text = freya_create_text_node(c("hello").as_ptr());
+            freya_append_child(span, text);
+            freya_append_child(div, span);
+
+            extern "C" fn noop() {}
+            freya_add_event_listener(div, c("click").as_ptr(), noop);
+
+            let json = get_plan_json(div);
+
+            // Verify JSON structure matches the direct plan
+            assert_eq!(json["kind"], "Rect");
+            assert_eq!(json["has_click_handler"], true);
+            assert_eq!(json["styles"]["background"], "red");
+            assert_eq!(json["children"][0]["kind"], "Label");
+            assert_eq!(json["children"][0]["children"][0]["text"], "hello");
+
+            freya_destroy_element(div);
+            freya_destroy_element(span);
+            freya_destroy_element(text);
+        }
+    }
+}

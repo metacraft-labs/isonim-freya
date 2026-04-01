@@ -782,6 +782,155 @@ pub extern "C" fn freya_reset_windows() {
 }
 
 // ---------------------------------------------------------------------------
+// Render plan inspection FFI (G3-F)
+// ---------------------------------------------------------------------------
+
+/// Build a render plan from the shadow tree rooted at `root` and return it as
+/// a JSON string. The caller must free the returned string with `freya_free_string`.
+///
+/// Returns null if the handle is null or the node doesn't exist.
+///
+/// JSON format:
+/// ```json
+/// {
+///   "kind": "Rect",
+///   "text": null,
+///   "has_click_handler": false,
+///   "has_input_handler": false,
+///   "event_names": [],
+///   "styles": { "width": "100%", ... },
+///   "children": [ ... ]
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn freya_render_plan_json(root: *mut FreyaElement) -> *mut c_char {
+    let node_id = unsafe { handle_to_node_id(root) };
+    if node_id.is_null() {
+        return std::ptr::null_mut();
+    }
+    let tree = lock_tree();
+    let plan = match render_sync::build_render_plan(&tree, node_id) {
+        Some(p) => p,
+        None => return std::ptr::null_mut(),
+    };
+    drop(tree);
+
+    let json = render_plan_to_json(&plan);
+    match std::ffi::CString::new(json) {
+        Ok(cs) => cs.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Free a string returned by `freya_render_plan_json`.
+#[no_mangle]
+pub extern "C" fn freya_free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        unsafe {
+            drop(std::ffi::CString::from_raw(ptr));
+        }
+    }
+}
+
+/// Return the total element count in the render plan rooted at `root`.
+/// Returns 0 if the handle is null or the node doesn't exist.
+#[no_mangle]
+pub extern "C" fn freya_render_plan_element_count(root: *mut FreyaElement) -> u32 {
+    let node_id = unsafe { handle_to_node_id(root) };
+    if node_id.is_null() {
+        return 0;
+    }
+    let tree = lock_tree();
+    match render_sync::build_render_plan(&tree, node_id) {
+        Some(plan) => render_sync::count_render_nodes(&plan) as u32,
+        None => 0,
+    }
+}
+
+/// Verify that a render plan can be built from the shadow tree rooted at `root`.
+/// Returns 1 if valid, 0 if there are issues (null handle, missing node, etc.).
+#[no_mangle]
+pub extern "C" fn freya_verify_render_plan(root: *mut FreyaElement) -> u8 {
+    let node_id = unsafe { handle_to_node_id(root) };
+    if node_id.is_null() {
+        return 0;
+    }
+    let tree = lock_tree();
+    match render_sync::build_render_plan(&tree, node_id) {
+        Some(_) => 1,
+        None => 0,
+    }
+}
+
+/// Internal helper: serialize a RenderNode to a JSON string.
+fn render_plan_to_json(plan: &render_sync::RenderNode) -> String {
+    fn node_to_string(plan: &render_sync::RenderNode) -> String {
+        let kind = format!("{:?}", plan.element_kind);
+        let text = match &plan.text {
+            Some(t) => format!("\"{}\"", t.replace('\\', "\\\\").replace('"', "\\\"")),
+            None => "null".to_string(),
+        };
+
+        let mut style_entries = Vec::new();
+        let s = &plan.styles;
+        macro_rules! push_style {
+            ($field:ident, $name:expr) => {
+                if let Some(ref v) = s.$field {
+                    style_entries.push(format!("\"{}\":\"{}\"", $name, v.replace('"', "\\\"")));
+                }
+            };
+        }
+        push_style!(width, "width");
+        push_style!(height, "height");
+        push_style!(min_width, "min_width");
+        push_style!(min_height, "min_height");
+        push_style!(max_width, "max_width");
+        push_style!(max_height, "max_height");
+        push_style!(padding, "padding");
+        push_style!(margin, "margin");
+        push_style!(background, "background");
+        push_style!(color, "color");
+        push_style!(font_size, "font_size");
+        push_style!(font_family, "font_family");
+        push_style!(font_weight, "font_weight");
+        push_style!(font_style, "font_style");
+        push_style!(corner_radius, "corner_radius");
+        push_style!(border, "border");
+        push_style!(shadow, "shadow");
+        push_style!(direction, "direction");
+        push_style!(main_align, "main_align");
+        push_style!(cross_align, "cross_align");
+        push_style!(overflow, "overflow");
+        push_style!(opacity, "opacity");
+        push_style!(spacing, "spacing");
+        push_style!(text_align, "text_align");
+        push_style!(line_height, "line_height");
+        push_style!(letter_spacing, "letter_spacing");
+        let styles_json = format!("{{{}}}", style_entries.join(","));
+
+        let event_names: Vec<String> = plan
+            .event_names
+            .iter()
+            .map(|e| format!("\"{}\"", e))
+            .collect();
+
+        let children: Vec<String> = plan.children.iter().map(node_to_string).collect();
+
+        format!(
+            "{{\"kind\":\"{}\",\"text\":{},\"has_click_handler\":{},\"has_input_handler\":{},\"event_names\":[{}],\"styles\":{},\"children\":[{}]}}",
+            kind,
+            text,
+            plan.has_click_handler,
+            plan.has_input_handler,
+            event_names.join(","),
+            styles_json,
+            children.join(","),
+        )
+    }
+    node_to_string(plan)
+}
+
+// ---------------------------------------------------------------------------
 // Rust-side tests
 // ---------------------------------------------------------------------------
 

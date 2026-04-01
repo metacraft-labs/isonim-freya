@@ -146,4 +146,18 @@ proc freya_get_attribute*(node: FreyaElement; name: cstring; buf: pointer; bufLe
 proc freya_nth_child*(node: FreyaElement; index: uint64): FreyaElement
   {.importc: "freya_nth_child".}
 
+# --- Render plan inspection (G3-F — integration testing) ---
+
+proc freya_render_plan_json*(root: FreyaElement): pointer
+  {.importc: "freya_render_plan_json".}
+
+proc freya_free_string*(p: pointer)
+  {.importc: "freya_free_string".}
+
+proc freya_render_plan_element_count*(root: FreyaElement): uint32
+  {.importc: "freya_render_plan_element_count".}
+
+proc freya_verify_render_plan*(root: FreyaElement): uint8
+  {.importc: "freya_verify_render_plan".}
+
 {.pop.}

@@ -393,6 +393,29 @@ proc fireEvent*(node: FreyaElement; event: string) =
   freya_dispatch_event(node, event.cstring)
 
 # ===========================================================================
+# Render plan inspection (G3-F — integration testing)
+# ===========================================================================
+
+proc renderPlanJson*(node: FreyaElement): string =
+  ## Build a render plan from the shadow tree rooted at `node` and return
+  ## it as a JSON string. Returns "" if the node is nil or missing.
+  let raw = freya_render_plan_json(node)
+  if raw == nil:
+    return ""
+  let cstr = cast[cstring](raw)
+  result = $cstr
+  freya_free_string(raw)
+
+proc renderPlanElementCount*(node: FreyaElement): int =
+  ## Return the total number of elements in the render plan rooted at `node`.
+  int(freya_render_plan_element_count(node))
+
+proc verifyRenderPlan*(node: FreyaElement): bool =
+  ## Return true if a valid render plan can be built from the shadow tree
+  ## rooted at `node`.
+  freya_verify_render_plan(node) == 1
+
+# ===========================================================================
 # Compile-time concept check
 # ===========================================================================
 #
