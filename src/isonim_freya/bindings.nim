@@ -49,6 +49,14 @@ type EventCallback* = proc() {.cdecl.}
 proc freya_add_event_listener*(node: FreyaElement; event: cstring; handler: EventCallback)
   {.importc: "freya_add_event_listener".}
 
+proc freya_add_event_listener_id*(node: FreyaElement; event: cstring; callbackId: int32)
+  {.importc: "freya_add_event_listener_id".}
+
+type EventDispatcherCallback* = proc(callbackId: int32) {.cdecl.}
+
+proc freya_set_event_dispatcher*(dispatcher: EventDispatcherCallback)
+  {.importc: "freya_set_event_dispatcher".}
+
 proc freya_first_child*(node: FreyaElement): FreyaElement
   {.importc: "freya_first_child".}
 

@@ -10,6 +10,7 @@
 ## To verify compilation only (no Rust shim needed):
 ##   nim check --nimcache:nimcache/test_renderer tests/test_renderer.nim
 
+import std/tables
 import isonim_freya/renderer
 import isonim_freya/bindings
 
@@ -141,53 +142,84 @@ block callbackRegistryTest:
   resetCallbacks()
 
   var counter = 0
-  let cb = registerCallback(proc() = counter += 1)
+  let id1 = registerCallback(proc() = counter += 1)
 
-  # The returned callback is a cdecl proc
-  assert cb != nil
+  # The returned value is a callback ID (positive int32)
+  assert id1 > 0
 
-  # Calling the trampoline should invoke our closure
-  cb()
+  # Dispatching via the global dispatcher should invoke our closure
+  # (resetCallbacks already registers the dispatcher)
+  # We test the table lookup directly since we can't call the Rust dispatcher
+  # without FFI — but we can verify the table is populated correctly.
+  assert callbackTable.hasKey(id1)
+  callbackTable[id1]()
   assert counter == 1, "callback should have been called once"
 
-  cb()
+  callbackTable[id1]()
   assert counter == 2, "callback should have been called twice"
 
   # Register another callback
   var other = 0
-  let cb2 = registerCallback(proc() = other += 10)
-  cb2()
+  let id2 = registerCallback(proc() = other += 10)
+  assert id2 > id1, "IDs should be monotonically increasing"
+  callbackTable[id2]()
   assert other == 10, "second callback should work independently"
 
   # First callback still works
-  cb()
+  callbackTable[id1]()
   assert counter == 3
 
   resetCallbacks()
   echo "test_renderer: callback registry unit test passed"
 
 # ===========================================================================
-# 7. Trampoline pool exhaustion test
+# 7. Dynamic callback registry — 150+ callbacks and monotonicity test
 # ===========================================================================
 
-block trampolinePoolTest:
+block manyCallbacksTest:
   resetCallbacks()
 
-  # Register all available trampolines
-  for i in 0 ..< trampolineCount:
-    let cb = registerCallback(proc() = discard)
-    assert cb != nil
+  const numCallbacks = 150
+  var counters = new(ref array[numCallbacks, int])
+  var ids: seq[int32]
 
-  # Next registration should fail
-  var failed = false
-  try:
-    discard registerCallback(proc() = discard)
-  except AssertionDefect:
-    failed = true
+  proc makeIncrementor(c: ref array[numCallbacks, int]; idx: int): proc() =
+    proc() = c[][idx] += 1
 
-  assert failed, "should have raised AssertionDefect when pool exhausted"
+  for i in 0 ..< numCallbacks:
+    let id = registerCallback(makeIncrementor(counters, i))
+    ids.add(id)
+
+  # All IDs should be unique and monotonically increasing
+  for i in 1 ..< ids.len:
+    assert ids[i] > ids[i - 1], "IDs must be monotonically increasing"
+
+  # Fire all callbacks via the table
+  for id in ids:
+    callbackTable[id]()
+
+  # Verify all fired
+  for i in 0 ..< numCallbacks:
+    assert counters[][i] == 1, "callback " & $i & " should have been called once"
 
   resetCallbacks()
-  echo "test_renderer: trampoline pool exhaustion test passed"
+  echo "test_renderer: 150+ callbacks test passed"
+
+block monotonicityAfterRemovalTest:
+  resetCallbacks()
+
+  let id1 = registerCallback(proc() = discard)
+  let id2 = registerCallback(proc() = discard)
+
+  # Remove id1
+  removeCallback(id1)
+  assert not callbackTable.hasKey(id1)
+
+  # New registrations should still get higher IDs (never reuse)
+  let id3 = registerCallback(proc() = discard)
+  assert id3 > id2, "new ID should be greater than any previously issued ID"
+
+  resetCallbacks()
+  echo "test_renderer: monotonicity after removal test passed"
 
 echo "test_renderer: all tests passed"

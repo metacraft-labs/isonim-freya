@@ -89,7 +89,10 @@ fn add_event_listener(node_id: NodeId, event_name: &str, callback: extern "C" fn
     use freya_nim_shim::tree::EventListener;
     let mut tree = lock_tree();
     if let Some(node) = tree.get_mut(node_id) {
-        let listener = EventListener { callback };
+        let listener = EventListener {
+            callback,
+            callback_id: 0,
+        };
         node.event_listeners
             .entry(event_name.to_string())
             .or_default()
