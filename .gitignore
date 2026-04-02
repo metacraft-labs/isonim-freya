@@ -21,3 +21,4 @@ tests/test_cross_renderer
 tests/test_demo_app
 tests/test_render_integration
 tests/test_structural_comparison
+tests/test_gui

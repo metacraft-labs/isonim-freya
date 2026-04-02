@@ -1651,9 +1651,32 @@ name = "freya-nim-shim"
 version = "0.1.0"
 dependencies = [
  "freya",
+ "freya-testing",
  "serde_json",
  "serial_test",
  "tokio",
+]
+
+[[package]]
+name = "freya-testing"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eea9ce4dbab416f8f10245720ceb1f7085bc6cac2612b3d20efcfe762daec947"
+dependencies = [
+ "accesskit",
+ "dioxus",
+ "dioxus-core",
+ "dioxus-core-macro",
+ "dioxus-signals",
+ "freya-components",
+ "freya-core",
+ "freya-elements",
+ "freya-engine",
+ "freya-hooks",
+ "freya-native-core",
+ "tokio",
+ "torin",
+ "winit",
 ]
 
 [[package]]

@@ -17,9 +17,9 @@
 //! Element handles (`*mut FreyaElement`) are thin wrappers around `NodeId` values.
 //! They are heap-allocated so the Nim side can hold them as opaque pointers.
 
-mod tree;
-mod window;
-mod render_sync;
+pub mod tree;
+pub mod window;
+pub mod render_sync;
 #[cfg(feature = "freya-backend")]
 mod freya_app;
 
@@ -32,18 +32,18 @@ use window::{CloseCallback, FocusCallback, ResizeCallback};
 
 /// Global shadow tree protected by a mutex.
 /// All extern "C" functions lock this to perform tree operations.
-static TREE: std::sync::LazyLock<Mutex<Tree>> =
+pub static TREE: std::sync::LazyLock<Mutex<Tree>> =
     std::sync::LazyLock::new(|| Mutex::new(Tree::new()));
 
 /// Global root node ID for the render-sync bridge.
 /// Set by `freya_launch()` so the Freya component knows which node is the root.
-static ROOT_NODE_ID: std::sync::LazyLock<Mutex<NodeId>> =
+pub static ROOT_NODE_ID: std::sync::LazyLock<Mutex<NodeId>> =
     std::sync::LazyLock::new(|| Mutex::new(NodeId::NULL));
 
 /// Lock the global tree, recovering from poison if needed.
 /// Since the tree is always in a valid (if inconsistent) state after a panic,
 /// we simply clear the poison and continue.
-fn lock_tree() -> std::sync::MutexGuard<'static, Tree> {
+pub fn lock_tree() -> std::sync::MutexGuard<'static, Tree> {
     match TREE.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -1353,6 +1353,7 @@ mod tests {
 
     #[test]
     #[serial]
+    #[cfg(not(feature = "freya-backend"))]
     fn test_launch_callback() {
         freya_reset_tree();
 
@@ -1509,6 +1510,7 @@ mod tests {
 
     #[test]
     #[serial]
+    #[cfg(not(feature = "freya-backend"))]
     fn test_window_integration_with_launch() {
         // Verify that freya_launch (without freya-backend) creates the root
         // and the builder callback can attach event listeners that dispatch.

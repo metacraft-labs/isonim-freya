@@ -274,6 +274,11 @@ impl Tree {
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
+
+    /// Iterate mutably over all nodes in the tree.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Node> {
+        self.nodes.values_mut()
+    }
 }
 
 impl Default for Tree {

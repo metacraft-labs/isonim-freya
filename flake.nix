@@ -92,6 +92,7 @@
               pkgs.libxcb
               pkgs.mesa
               pkgs.libglvnd
+              pkgs.stdenv.cc.cc.lib
             ]
           );
 

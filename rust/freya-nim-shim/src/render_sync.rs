@@ -377,7 +377,7 @@ pub mod freya_render {
         // Freya RSX attributes are set as string literals.
         let width = s.width.clone().unwrap_or_else(|| "auto".to_string());
         let height = s.height.clone().unwrap_or_else(|| "auto".to_string());
-        let background = s.background.clone().unwrap_or_default();
+        let background = s.background.clone().unwrap_or_else(|| "transparent".to_string());
         let padding = s.padding.clone().unwrap_or_else(|| "0".to_string());
         let margin = s.margin.clone().unwrap_or_else(|| "0".to_string());
         let corner_radius = s.corner_radius.clone().unwrap_or_else(|| "0".to_string());
@@ -385,8 +385,8 @@ pub mod freya_render {
         let main_align = s.main_align.clone().unwrap_or_else(|| "start".to_string());
         let cross_align = s.cross_align.clone().unwrap_or_else(|| "start".to_string());
         let overflow = s.overflow.clone().unwrap_or_else(|| "clip".to_string());
-        let color = s.color.clone().unwrap_or_default();
-        let font_size = s.font_size.clone().unwrap_or_default();
+        let color = s.color.clone().unwrap_or_else(|| "rgb(0, 0, 0)".to_string());
+        let font_size = s.font_size.clone().unwrap_or_else(|| "16".to_string());
 
         // Wire up event handlers if the shadow node has them
         let node_id = plan.node_id;
@@ -428,9 +428,9 @@ pub mod freya_render {
     fn render_label(plan: &RenderNode) -> Element {
         let text = plan.text.clone().unwrap_or_default();
         let s = &plan.styles;
-        let color = s.color.clone().unwrap_or_default();
-        let font_size = s.font_size.clone().unwrap_or_default();
-        let font_weight = s.font_weight.clone().unwrap_or_default();
+        let color = s.color.clone().unwrap_or_else(|| "rgb(0, 0, 0)".to_string());
+        let font_size = s.font_size.clone().unwrap_or_else(|| "16".to_string());
+        let font_weight = s.font_weight.clone().unwrap_or_else(|| "normal".to_string());
 
         // If this label has children (e.g. a span wrapping text nodes),
         // concatenate their text.
@@ -459,10 +459,10 @@ pub mod freya_render {
     /// Render a `paragraph` element (rich text container).
     fn render_paragraph(plan: &RenderNode) -> Element {
         let s = &plan.styles;
-        let color = s.color.clone().unwrap_or_default();
-        let font_size = s.font_size.clone().unwrap_or_default();
-        let line_height = s.line_height.clone().unwrap_or_default();
-        let text_align = s.text_align.clone().unwrap_or_default();
+        let color = s.color.clone().unwrap_or_else(|| "rgb(0, 0, 0)".to_string());
+        let font_size = s.font_size.clone().unwrap_or_else(|| "16".to_string());
+        let line_height = s.line_height.clone().unwrap_or_else(|| "1.2".to_string());
+        let text_align = s.text_align.clone().unwrap_or_else(|| "start".to_string());
 
         let text = plan.text.clone().unwrap_or_default();
         let child_texts: Vec<String> = plan
