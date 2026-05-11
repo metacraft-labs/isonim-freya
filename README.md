@@ -49,17 +49,26 @@ just test-all
 
 ## Running the Demo App
 
-The repo includes a **Task Manager** demo at `demos/task-manager/src/main.nim`.
-It exercises signals, memos, reactive rendering, event dispatch, and tree
-mutations — the same app that runs in the browser via isonim's web renderer.
+Since EX-M4, the canonical Task Manager demo lives in the
+[`isonim-examples`](../isonim-examples/) repo at
+`isonim-examples/task_app/main_freya.nim`. It consumes the shared
+`TaskAppVM` (Layer 3) + view template (Layer 2) and only the Freya-
+specific Layer 1 leaves + Layer 4 composition root differ from the
+TUI/web/GPUI flavours.
 
 ### Headless mode (no display server)
 
-Builds the UI tree and runs through all interactions programmatically,
-printing the results to stdout:
+Builds the UI tree and runs through interactions programmatically,
+printing results to stdout:
 
 ```bash
+# From this repo's dev shell (provides the Rust shim's runtime libs):
 just demo-run
+
+# Or from the isonim-examples repo's dev shell:
+cd ../isonim-examples
+LD_LIBRARY_PATH=../isonim-freya/rust/target/debug \
+  nim c -r task_app/main_freya.nim
 ```
 
 ### Window mode (requires display server)
@@ -70,7 +79,8 @@ First build the Rust shim with the Freya backend enabled, then compile with
 ```bash
 just rust-build          # build the shim library
 LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} \
-  nim c -r -d:freyaGui --path:../isonim/src demos/task-manager/src/main.nim
+  nim c -r -d:freyaGui --path:../isonim/src --path:../isonim-examples \
+  ../isonim-examples/task_app/main_freya.nim
 ```
 
 > Window mode requires a running X11 or Wayland display. For headless CI
@@ -83,11 +93,14 @@ LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} \
 ```bash
 just test              # core renderer tests
 just test-cross        # cross-renderer compatibility with isonim
-just test-demo         # task manager demo verification
 just test-integration  # render plan integration tests
 just test-structural   # structural comparison tests
 just test-all          # all of the above + Rust tests
 ```
+
+The task-manager demo's end-to-end tests live in `isonim-examples/tests/`
+(`test_freya_leaves_end_to_end.nim`); run them via that repo's
+`just test` recipe.
 
 ### Rust tests
 
@@ -132,6 +145,11 @@ isonim-freya/
 ├── src/isonim_freya/
 │   ├── bindings.nim               # Raw C bindings to Rust shim
 │   └── renderer.nim               # FreyaRenderer (RendererBackend impl)
-├── tests/                         # Nim test suite
-└── demos/task-manager/            # Task Manager demo app
+└── tests/                         # Nim test suite
 ```
+
+The Task Manager demo lives in [`isonim-examples`](../isonim-examples/)
+(`task_app/main_freya.nim`) since EX-M4; the in-repo `demos/` tree was
+removed when the from-scratch port was replaced by the canonical
+shared core (`task_app/core/{vm,views}.nim`) + Freya-specific Layer-1
+leaves + Layer-4 composition root.

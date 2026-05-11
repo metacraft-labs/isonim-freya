@@ -9,8 +9,6 @@ tests/test_basic
 tests/test_renderer
 tests/test_window
 tests/test_cross_renderer
-tests/test_demo_app
-demos/task-manager/src/main
 
 # Compiled test binaries
 tests/test_basic
@@ -18,7 +16,6 @@ tests/test_renderer
 tests/test_bindings
 tests/test_window
 tests/test_cross_renderer
-tests/test_demo_app
 tests/test_render_integration
 tests/test_structural_comparison
 tests/test_gui
