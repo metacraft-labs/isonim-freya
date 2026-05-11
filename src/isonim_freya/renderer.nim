@@ -344,6 +344,21 @@ proc fireEvent*(node: FreyaElement; event: string) =
   ## Dispatch an event on a Freya element (calls all registered listeners).
   freya_dispatch_event(node, event.cstring)
 
+proc getTag*(node: FreyaElement): string =
+  ## Read the element's tag name (e.g. "rect", "label", "paragraph").
+  ## Returns "" for nil nodes or text nodes (which have no tag). Used by
+  ## the RS-M4 Freya streaming adapter (in `isonim-render-serve`) to
+  ## derive a per-element fill colour when rasterizing the headless tree
+  ## to RGBA pixels. Mirrors `isonim_gpui.getTag` from the RS-M2 GPUI
+  ## adapter so the two adapters can share assertions.
+  if node == nil: return ""
+  let needed = freya_get_tag(node, nil, 0)
+  if needed == 0: return ""
+  var buf = newString(int(needed) + 1)
+  discard freya_get_tag(node, addr buf[0], uint64(buf.len))
+  buf.setLen(int(needed))
+  buf
+
 # ===========================================================================
 # Render plan inspection (G3-F — integration testing)
 # ===========================================================================

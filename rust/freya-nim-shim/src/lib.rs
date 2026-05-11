@@ -585,6 +585,49 @@ pub extern "C" fn freya_child_count(node: *mut FreyaElement) -> u64 {
         .unwrap_or(0)
 }
 
+/// Get the tag name of a node. Returns 0 for text nodes.
+/// Writes into `buf` if provided, returns the number of bytes needed.
+///
+/// Mirrors `gpui_get_tag` in `isonim-gpui` — used by the RS-M4
+/// Freya streaming adapter (in `isonim-render-serve`) to derive a
+/// per-element fill colour when rasterizing the headless tree to
+/// RGBA pixels. The behaviour exactly matches the GPUI shim's
+/// `gpui_get_tag` so the two adapters can share assertions in
+/// cross-renderer parity tests.
+#[no_mangle]
+pub extern "C" fn freya_get_tag(
+    node: *mut FreyaElement,
+    buf: *mut c_char,
+    buf_len: u64,
+) -> u64 {
+    let node_id = unsafe { handle_to_node_id(node) };
+    if node_id.is_null() {
+        return 0;
+    }
+    let tree = lock_tree();
+    let tag = match tree.get(node_id) {
+        Some(n) => match n.tag() {
+            Some(t) => t.to_string(),
+            None => return 0,
+        },
+        None => return 0,
+    };
+
+    let bytes = tag.as_bytes();
+    let needed = bytes.len() as u64;
+
+    if buf.is_null() || buf_len == 0 {
+        return needed;
+    }
+
+    let to_copy = std::cmp::min(bytes.len(), (buf_len - 1) as usize);
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf as *mut u8, to_copy);
+        *buf.add(to_copy) = 0; // null terminator
+    }
+    needed
+}
+
 /// Get the text content of a node and all its descendants (recursive).
 /// For text nodes, returns the text. For element nodes, concatenates
 /// all descendant text. The result is written into the provided buffer.

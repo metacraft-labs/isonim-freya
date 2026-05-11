@@ -153,6 +153,9 @@ proc freya_child_count*(node: FreyaElement): uint64
 proc freya_get_text_content*(node: FreyaElement; buf: pointer; bufLen: uint64): uint64
   {.importc: "freya_get_text_content".}
 
+proc freya_get_tag*(node: FreyaElement; buf: pointer; bufLen: uint64): uint64
+  {.importc: "freya_get_tag".}
+
 proc freya_get_attribute*(node: FreyaElement; name: cstring; buf: pointer; bufLen: uint64): uint64
   {.importc: "freya_get_attribute".}
 
