@@ -74,6 +74,9 @@ proc freya_launch*(title: cstring; width, height: cdouble;
                    root_builder: RootBuilderCallback)
   {.importc: "freya_launch".}
 
+proc freya_set_root_element*(handle: FreyaElement)
+  {.importc: "freya_set_root_element".}
+
 proc freya_dispatch_event*(node: FreyaElement; event: cstring)
   {.importc: "freya_dispatch_event".}
 

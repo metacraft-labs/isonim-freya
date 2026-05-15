@@ -463,6 +463,21 @@ pub extern "C" fn freya_launch(
     }
 }
 
+/// RS-M14 Phase 1: set the global `ROOT_NODE_ID` to the given element
+/// handle. Callers that build the shadow tree *without* going through
+/// `freya_launch` (e.g. the Freya streaming adapter in
+/// `isonim_render_serve`) must call this before invoking
+/// `freya_render_to_pixels` so the headless `shadow_tree_app` finds the
+/// correct tree root to render. Passing a null handle resets the root
+/// to `NodeId::NULL`, which causes the renderer to fall back to its
+/// "No shadow tree root found" placeholder element.
+#[no_mangle]
+pub extern "C" fn freya_set_root_element(handle: *mut FreyaElement) {
+    let node_id = unsafe { handle_to_node_id(handle) };
+    let mut root = ROOT_NODE_ID.lock().unwrap_or_else(|p| p.into_inner());
+    *root = node_id;
+}
+
 /// Trigger all event listeners for the given event on the given node.
 /// This is called by the Freya event loop (M2+) when an event occurs,
 /// or can be called directly for testing.
