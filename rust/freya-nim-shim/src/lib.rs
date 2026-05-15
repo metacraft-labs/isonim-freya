@@ -22,6 +22,13 @@ pub mod window;
 pub mod render_sync;
 #[cfg(feature = "freya-backend")]
 mod freya_app;
+/// RS-M14 Phase 1: headless RGBA rendering via freya-testing's Skia
+/// raster path. The module's `#[no_mangle]` entry points
+/// (`freya_render_to_pixels`, `freya_free_pixels`) are exported as
+/// part of the cdylib's C ABI when the `freya-headless` feature is
+/// enabled.
+#[cfg(feature = "freya-headless")]
+pub mod freya_headless;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;

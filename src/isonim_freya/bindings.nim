@@ -176,4 +176,21 @@ proc freya_render_plan_element_count*(root: FreyaElement): uint32
 proc freya_verify_render_plan*(root: FreyaElement): uint8
   {.importc: "freya_verify_render_plan".}
 
+# --- RS-M14 Phase 1: headless RGBA rendering via freya-testing ---
+#
+# Only exported when the shim is built with `--features freya-headless`.
+# Returns 0 on success and writes the RGBA8888 pixel-buffer ptr +
+# byte count to the caller's out pointers. The buffer is owned by
+# the shim and MUST be released via `freya_free_pixels(p, len)`.
+# On error returns a non-zero code and writes (nil, 0) to the
+# out pointers, so naive cleanup paths remain safe.
+
+proc freya_render_to_pixels*(width: cuint; height: cuint; scale: cfloat;
+                              outPtr: ptr ptr uint8;
+                              outLen: ptr csize_t): cint
+  {.importc: "freya_render_to_pixels".}
+
+proc freya_free_pixels*(p: ptr uint8; len: csize_t)
+  {.importc: "freya_free_pixels".}
+
 {.pop.}

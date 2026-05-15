@@ -274,10 +274,14 @@ pub fn count_render_nodes(plan: &RenderNode) -> usize {
 }
 
 // ---------------------------------------------------------------------------
-// Freya RSX rendering (only available with freya-backend feature)
+// Freya RSX rendering (available with freya-backend OR freya-headless feature)
 // ---------------------------------------------------------------------------
+//
+// RS-M14 Phase 1: the headless renderer (`freya_headless::freya_render_to_pixels`)
+// also drives `shadow_tree_app`, so this module must compile when either feature
+// is enabled. The runtime dependencies are the same (freya + tokio) in both cases.
 
-#[cfg(feature = "freya-backend")]
+#[cfg(any(feature = "freya-backend", feature = "freya-headless"))]
 pub mod freya_render {
     //! Actual Freya element rendering from the shadow tree.
     //!
