@@ -1651,11 +1651,15 @@ name = "freya-nim-shim"
 version = "0.1.0"
 dependencies = [
  "freya",
+ "freya-core",
+ "freya-engine",
  "freya-testing",
  "image",
  "serde_json",
  "serial_test",
+ "skia-safe",
  "tokio",
+ "torin",
 ]
 
 [[package]]

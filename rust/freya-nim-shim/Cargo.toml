@@ -13,18 +13,23 @@ default = []
 # Without this feature, the shim provides the shadow tree and extern "C" API
 # but the launch function does not start a real Freya window.
 freya-backend = ["freya", "tokio"]
-# RS-M14 Phase 1: enable the headless Skia raster path via freya-testing's
-# `TestingHandler::create_snapshot`. Coexists with `freya-backend`; the
-# windowed launch path in `freya_app.rs` is untouched. Pulls in `freya`
-# (needed for `shadow_tree_app`'s RSX), `tokio` (driver for
-# `wait_for_update`), `freya-testing` (the offscreen Skia surface), and
-# `image` (PNG decode of the snapshot data).
-freya-headless = ["freya", "tokio", "freya-testing", "image"]
+# RS-M14 Phase 1 + EPP-M10: enable the headless Skia raster path via
+# `freya-testing` + `freya-core::render::RenderPipeline`. Coexists with
+# `freya-backend`; the windowed launch path in `freya_app.rs` is
+# untouched. EPP-M10 replaced the per-frame PNG round-trip with a
+# direct `Surface::read_pixels` call, so the `image` crate is no longer
+# part of the active code path but is retained for source-compat and
+# rolled-back fallback during the cutover.
+freya-headless = ["freya", "tokio", "freya-testing", "freya-core", "freya-engine", "torin", "skia-safe", "image"]
 
 [dependencies]
 freya = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["time", "rt"], optional = true }
 freya-testing = { version = "0.3", optional = true }
+freya-core = { version = "0.3", optional = true }
+freya-engine = { version = "0.3", optional = true }
+torin = { version = "0.3", optional = true }
+skia-safe = { version = "0.82", optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
 
 [dev-dependencies]
