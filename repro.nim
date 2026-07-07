@@ -115,9 +115,17 @@
 ##     the real reactive core. The ``isonim/src`` + ``nim-everywhere/src``
 ##     roots are threaded automatically by the ``uses:`` ``nimPathDirs``
 ##     channel; the edge ``paths:`` adds only this repo's own ``src`` and the
-##     THIRD-PARTY ``../nim-faststreams`` + ``../nim-stew`` trees. Two files:
+##     THIRD-PARTY ``../nim-faststreams`` + ``../nim-stew`` trees. Three files:
 ##       - ``test_render_integration``   (Nim→FFI→Rust→render-plan pipeline)
 ##       - ``test_structural_comparison`` (task-manager render-plan structure)
+##       - ``test_cross_renderer``        (FreyaRenderer vs MockRenderer vs
+##         TerminalRenderer parity; ``import isonim/renderers/terminal_demo``.
+##         Formerly BROKEN by a stale ``isonim/renderers/terminal`` import
+##         after the isonim ``2b0567f`` rename; now FIXED + MODELLED — the
+##         one-line import fix mirrors the sibling ``isonim-gpui`` commit
+##         ``ff0b7c2``. ``terminal_demo`` still exports ``TerminalRenderer`` /
+##         ``TerminalNode`` / ``textContent`` / ``fireEvent``, so every
+##         ``terminal.<sym>`` qualifier is preserved via ``as terminal``.)
 ##
 ## **Per-test platform gating.** Every emitted test file compiles + runs to
 ## exit 0 under ``nim c`` on this Linux host — verified by a direct ``nim c
@@ -132,19 +140,6 @@
 ## ==========================================================================
 ## DEFERRED / not-modelled test sets (documented, NOT deleted or weakened)
 ## ==========================================================================
-##
-## (A) **``tests/test_cross_renderer.nim`` — PRE-EXISTING BROKEN at HEAD.**
-##     It ``import isonim/renderers/terminal``, but the isonim sibling
-##     RENAMED that module to ``terminal_demo`` in isonim commit ``2b0567f``
-##     ("isonim: rename demo terminal renderer to terminal_demo") and this
-##     repo's test was never updated — so it fails to compile
-##     ("cannot open file: isonim/renderers/terminal") under the repo's OWN
-##     ``just test-cross`` recipe too, NOT reprobuild-specific. It is a
-##     genuine stale-sibling-import product bug in ``isonim-freya`` (the test
-##     otherwise uses ``TerminalRenderer`` / ``TerminalNode`` /
-##     ``terminal.textContent`` / ``fireEvent``, all of which the renamed
-##     ``terminal_demo`` module still exports — a one-line import + qualifier
-##     fix). It gets NO edge and is reported upstream; NOT papered over here.
 ##
 ## (B) **``test_gui``'s ``when defined(freyaBackend)`` GUI arm** — the
 ##     ``Justfile`` ``test-gui-x11`` / ``test-gui-wayland`` recipes compile
@@ -215,13 +210,15 @@ proc spec(stem: string; consumesIsonim = false): FreyaTestSpec =
     consumesIsonim: consumesIsonim)
 
 # The HEADLESS native corpus. The four self-only tests + the headless
-# ``test_gui`` need only ``--path:src``; the two isonim-consumer tests
+# ``test_gui`` need only ``--path:src``; the three isonim-consumer tests
 # additionally get the SC-11 sibling ``src`` roots (threaded off the
 # ``uses:`` edges) + the third-party faststreams/stew paths. Every entry
-# compiles + runs to exit 0 under ``nim c`` on this Linux host. The stale
-# ``test_cross_renderer``, the ``-d:freyaBackend`` GUI arm, and the Rust
-# ``cargo`` corpus are DEFERRED per the module docstring (sets A / B / C);
-# none is run off its environment and none is weakened.
+# compiles + runs to exit 0 under ``nim c`` on this Linux host. The
+# ``-d:freyaBackend`` GUI arm and the Rust ``cargo`` corpus are DEFERRED
+# per the module docstring (sets B / C); none is run off its environment
+# and none is weakened. ``test_cross_renderer`` (formerly deferred as a
+# stale-sibling-import bug) is now FIXED + modelled — see the consumer
+# group note above (mirrors isonim-gpui ``ff0b7c2``).
 const freyaTestSpecs: seq[FreyaTestSpec] = @[
   # --- Self-only group (import isonim_freya/* only) ---
   spec("test_basic"),
@@ -232,6 +229,7 @@ const freyaTestSpecs: seq[FreyaTestSpec] = @[
   # --- isonim-consumer group (SC-11: import isonim/core/*) ---
   spec("test_render_integration", consumesIsonim = true),
   spec("test_structural_comparison", consumesIsonim = true),
+  spec("test_cross_renderer", consumesIsonim = true),
 ]
 
 package isonim_freya:
