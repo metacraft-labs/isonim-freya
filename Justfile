@@ -57,11 +57,19 @@ test-integration:
 test-structural:
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_structural_comparison tests/test_structural_comparison.nim
 
+# NH-M1: the reactive root seam (`renderFreya`). Requires the Rust shim —
+# every `freya_*` binding is `dynlib`, so without `just rust-build` the binary
+# does not start ("could not load: libfreya_nim_shim.so"). That hard failure
+# is deliberate: there is no skip arm, because a suite that went green without
+# the shim would be asserting nothing about Freya.
+test-reactive-root:
+    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_render_native_freya_reactive tests/test_render_native_freya_reactive.nim
+
 # Run all tests (Rust + Nim + cross-renderer + integration). The
 # task-manager demo's tests live in `isonim-examples/tests/` since
 # EX-M4 (`test_freya_leaves_end_to_end.nim`); run them via that repo's
 # `just test` recipe.
-test-all: rust-test test test-cross test-integration test-structural
+test-all: rust-test test test-cross test-integration test-structural test-reactive-root
 
 # Run GUI tests under Xvfb (X11 headless)
 test-gui-x11 *ARGS:

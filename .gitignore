@@ -19,3 +19,6 @@ tests/test_cross_renderer
 tests/test_render_integration
 tests/test_structural_comparison
 tests/test_gui
+
+# NH-M1 reactive-root suite binary
+tests/test_render_native_freya_reactive
