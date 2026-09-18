@@ -310,6 +310,19 @@ proc parentNode*(r: FreyaRenderer; node: FreyaElement): FreyaElement =
 # Tree inspection helpers (for testing / cross-renderer comparison)
 # ===========================================================================
 
+proc nodeId*(node: FreyaElement): uint64 =
+  ## Stable identity of the shadow-tree node behind an opaque handle.
+  ## See `bindings.freya_node_id` for why handle pointers cannot be
+  ## compared directly.
+  if node == nil: 0'u64 else: freya_node_id(node)
+
+proc sameNode*(a, b: FreyaElement): bool =
+  ## "Are these two handles the same node?" — the comparison every
+  ## identity assertion in this repo must use. `a == b` compares
+  ## POINTERS and is false for two handles to one node.
+  let ia = nodeId(a)
+  ia != 0'u64 and ia == nodeId(b)
+
 proc childCount*(node: FreyaElement): int =
   ## Return the number of children of a Freya element.
   int(freya_child_count(node))

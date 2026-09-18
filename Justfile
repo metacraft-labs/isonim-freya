@@ -69,7 +69,15 @@ test-reactive-root:
 # task-manager demo's tests live in `isonim-examples/tests/` since
 # EX-M4 (`test_freya_leaves_end_to_end.nim`); run them via that repo's
 # `just test` recipe.
-test-all: check-exported-symbols rust-test test test-cross test-integration test-structural test-reactive-root
+# NH-M3: the per-renderer reconciler instance and its identity gate.
+# Requires the Rust shim (`just rust-build`) for the same reason
+# `test-reactive-root` does: every `freya_*` binding is `dynlib`, so
+# without it the binary does not start. No skip arm — a suite that went
+# green without the shim would be asserting nothing about Freya.
+test-reconciler:
+    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src -d:isonimHmr --nimcache:nimcache/test_freya_reconciler tests/test_freya_reconciler_identity.nim
+
+test-all: check-exported-symbols rust-test test test-cross test-integration test-structural test-reactive-root test-reconciler
 
 # Run GUI tests under Xvfb (X11 headless)
 test-gui-x11 *ARGS:

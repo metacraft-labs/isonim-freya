@@ -150,6 +150,16 @@ proc freya_tree_node_count*(): uint64
 
 # --- Tree inspection (M5 — cross-renderer testing) ---
 
+proc freya_node_id*(node: FreyaElement): uint64
+  {.importc: "freya_node_id".}
+  ## Stable identity of the shadow-tree node this handle refers to.
+  ##
+  ## NOT redundant with the handle pointer: `freya_nth_child`,
+  ## `freya_first_child` and `freya_parent_node` each return a FRESHLY
+  ## allocated handle, so two handles to the same node are different
+  ## pointers. Compare this instead — `renderer.sameNode` wraps it.
+  ## 0 means "no node" (null handle or null id).
+
 proc freya_child_count*(node: FreyaElement): uint64
   {.importc: "freya_child_count".}
 

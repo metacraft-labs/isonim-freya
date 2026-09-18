@@ -22,3 +22,4 @@ tests/test_gui
 
 # NH-M1 reactive-root suite binary
 tests/test_render_native_freya_reactive
+tests/test_freya_reconciler_identity
