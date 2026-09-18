@@ -29,6 +29,15 @@ mod freya_app;
 /// enabled.
 #[cfg(feature = "freya-headless")]
 pub mod freya_headless;
+// …and its feature-less counterpart, so the cdylib's EXPORTED SYMBOL SET
+// does not depend on which features it was built with. Without this a
+// plain `cargo build` produced 46 exports while `bindings.nim` imported
+// 48 under one `{.push dynlib.}`, and the Freya launcher died before
+// `main` with "could not import: freya_render_to_pixels". Read
+// `freya_headless_unavailable.rs`'s module docs before changing either
+// gate.
+#[cfg(not(feature = "freya-headless"))]
+pub mod freya_headless_unavailable;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;

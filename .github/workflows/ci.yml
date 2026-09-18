@@ -75,6 +75,13 @@ jobs:
       - name: Validate Rust/Nim binding consistency
         run: nix develop -c bash -c "./tools/check_bindings.sh"
 
+      # The same claim, enumerated in the LINKED IMAGE rather than in the
+      # source text. The step above is cfg-blind and passed 48 == 48 on a
+      # default build that exported 46, while the Freya launcher died at
+      # load with "could not import: freya_render_to_pixels".
+      - name: Validate built-shim exports against the bindings
+        run: nix develop -c bash -c "./tools/check_exported_symbols.sh"
+
       - name: Run cross-renderer tests
         run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_cross_renderer.nim"
 

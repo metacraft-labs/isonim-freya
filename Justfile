@@ -69,7 +69,7 @@ test-reactive-root:
 # task-manager demo's tests live in `isonim-examples/tests/` since
 # EX-M4 (`test_freya_leaves_end_to_end.nim`); run them via that repo's
 # `just test` recipe.
-test-all: rust-test test test-cross test-integration test-structural test-reactive-root
+test-all: check-exported-symbols rust-test test test-cross test-integration test-structural test-reactive-root
 
 # Run GUI tests under Xvfb (X11 headless)
 test-gui-x11 *ARGS:
@@ -93,9 +93,23 @@ _run-gui-tests:
 generate-bindings:
     ./tools/generate_bindings.sh
 
-# Validate that Nim bindings match Rust exports
+# Validate that Nim bindings match Rust exports.
+#
+# SOURCE-LEVEL. This reads `extern "C"` declarations out of the crate's
+# .rs files and is `cfg`-blind by construction, so it cannot see a
+# declaration that the default feature selection compiles out. Run
+# `check-exported-symbols` for that; the two are complements, not
+# alternatives, and only the second one can catch a "could not import:"
+# at process load.
 check-bindings:
     ./tools/check_bindings.sh
+
+# Check that every symbol bindings.nim imports is EXPORTED BY A BUILT
+# SHIM. Builds the default (feature-less) profile itself and reads
+# `nm -D` off it — see the script header and
+# `codetracer-specs/Testing/Verification-Harness-Traps.md` §18.
+check-exported-symbols:
+    ./tools/check_exported_symbols.sh
 
 # Check that the binding test compiles
 nim-check-bindings:
