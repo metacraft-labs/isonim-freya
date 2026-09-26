@@ -30,6 +30,7 @@ rust-test:
 
 # Run Nim tests (requires Rust shim to be built: just rust-build)
 test:
+    nim c -r --hints:off tests/test_nimcache_is_worktree_local.nim
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --nimcache:nimcache/test_basic tests/test_basic.nim
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --nimcache:nimcache/test_renderer tests/test_renderer.nim
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --nimcache:nimcache/test_window tests/test_window.nim
