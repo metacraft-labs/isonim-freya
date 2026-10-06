@@ -17,8 +17,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      # Nix comes from the shared setup-nix action, not from
+      # DeterminateSystems/nix-installer-action + magic-nix-cache-action:
+      # Nix is already on the self-hosted runners, and magic-nix-cache's
+      # restore pipes through `xz`, which is not on the runner PATH
+      # ("/bin/sh: xz: command not found"), so this step failed every job.
+      # Binary-cache traffic goes through the org Attic substituter instead.
+      - uses: metacraft-labs/devops-modules/.github/setup-nix@dev
+        with:
+          trusted-public-keys: ${{ vars.ATTIC_TRUSTED_PUBLIC_KEY }}
+          substituters: ${{ vars.ATTIC_SUBSTITUTER }}
 
       - name: cargo check
         run: nix develop -c bash -c "cd rust && cargo check"
@@ -48,8 +56,16 @@ jobs:
           path: ../isonim
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      # Nix comes from the shared setup-nix action, not from
+      # DeterminateSystems/nix-installer-action + magic-nix-cache-action:
+      # Nix is already on the self-hosted runners, and magic-nix-cache's
+      # restore pipes through `xz`, which is not on the runner PATH
+      # ("/bin/sh: xz: command not found"), so this step failed every job.
+      # Binary-cache traffic goes through the org Attic substituter instead.
+      - uses: metacraft-labs/devops-modules/.github/setup-nix@dev
+        with:
+          trusted-public-keys: ${{ vars.ATTIC_TRUSTED_PUBLIC_KEY }}
+          substituters: ${{ vars.ATTIC_SUBSTITUTER }}
 
       - name: Build Rust shim
         run: nix develop -c bash -c "cd rust && cargo build"
@@ -124,8 +140,16 @@ jobs:
           path: ../isonim
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      # Nix comes from the shared setup-nix action, not from
+      # DeterminateSystems/nix-installer-action + magic-nix-cache-action:
+      # Nix is already on the self-hosted runners, and magic-nix-cache's
+      # restore pipes through `xz`, which is not on the runner PATH
+      # ("/bin/sh: xz: command not found"), so this step failed every job.
+      # Binary-cache traffic goes through the org Attic substituter instead.
+      - uses: metacraft-labs/devops-modules/.github/setup-nix@dev
+        with:
+          trusted-public-keys: ${{ vars.ATTIC_TRUSTED_PUBLIC_KEY }}
+          substituters: ${{ vars.ATTIC_SUBSTITUTER }}
 
       - name: Build Rust shim (with freya-backend)
         run: nix develop -c bash -c "cd rust && cargo build --features freya-backend"
