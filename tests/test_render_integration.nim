@@ -176,8 +176,8 @@ suite "Render Plan - Styles":
     r.setStyle(el, "width", "200px")
     r.setStyle(el, "height", "100px")
     let plan = getPlan(el)
-    check plan["styles"]["width"].getStr == "200px"
-    check plan["styles"]["height"].getStr == "100px"
+    check plan["styles"]["width"].getStr == "200"
+    check plan["styles"]["height"].getStr == "100"
 
   test "CSS border-radius maps to corner_radius":
     let r = FreyaRenderer()

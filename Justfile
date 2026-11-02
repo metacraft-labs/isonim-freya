@@ -78,7 +78,7 @@ test-reactive-root:
 test-reconciler:
     LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src -d:isonimHmr --nimcache:nimcache/test_freya_reconciler tests/test_freya_reconciler_identity.nim
 
-test-all: check-exported-symbols rust-test test test-cross test-integration test-structural test-reactive-root test-reconciler
+test-all: check-exported-symbols rust-test test test-cross test-integration test-structural test-reactive-root test-reconciler test-pixel-lengths
 
 # Run GUI tests under Xvfb (X11 headless)
 test-gui-x11 *ARGS:
@@ -128,3 +128,7 @@ nim-check-bindings:
 clean:
     rm -rf target nimcache tests/test_basic tests/test_bindings tests/test_renderer tests/test_window
     cd rust && cargo clean
+
+# Actual public FFI payloads into checksum-bound original native parsers.
+test-pixel-lengths: rust-build
+    python3 tools/test_pixel_lengths.py

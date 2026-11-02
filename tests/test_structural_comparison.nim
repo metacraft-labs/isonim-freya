@@ -122,10 +122,10 @@ suite "Structural Verification - Task Manager":
       let styles = plan["styles"]
 
       check styles["background"].getStr() == "blue"
-      check styles["width"].getStr() == "400px"
+      check styles["width"].getStr() == "400"
       # flex-direction: column -> direction: vertical (Freya mapping)
       check styles["direction"].getStr() == "vertical"
-      check styles["padding"].getStr() == "16px"
+      check styles["padding"].getStr() == "16"
 
       dispose()
 

@@ -10,7 +10,7 @@
 ## - HTML attributes are mapped to Freya-appropriate attributes
 ## - Event listeners use a callback registry + cdecl trampoline bridge
 
-import std/tables
+import std/[tables, strutils, math]
 import isonim_freya/bindings
 
 # Re-export FreyaElement so users only need to import renderer.
@@ -147,9 +147,54 @@ proc mapStyleProperty(prop: string): string =
   else:
     prop
 
+proc scalarPixelValue(value: string): string =
+  ## Freya's native parsers take unitless numbers. Accept one complete finite
+  ## CSS pixel token, preserving its numeric spelling; leave all nonmatches
+  ## for their existing native interpretation rather than guessing units.
+  ## CSS number-token grammar: https://www.w3.org/TR/css-syntax-3/#consume-number
+  ## A fractional dot requires a following digit; `.5` is valid, `1.` is not.
+  if value.len <= 2 or value[^2].toLowerAscii != 'p' or
+      value[^1].toLowerAscii != 'x':
+    return value
+  let number = value[0 ..< value.len - 2]
+  var i = 0
+  if number[i] in {'+', '-'}: inc i
+  var digits = 0
+  while i < number.len and number[i] in {'0'..'9'}:
+    inc i
+    inc digits
+  if i < number.len and number[i] == '.':
+    inc i
+    let fractionStart = i
+    while i < number.len and number[i] in {'0'..'9'}:
+      inc i
+      inc digits
+    if i == fractionStart: return value
+  if digits == 0: return value
+  if i < number.len and number[i] in {'e', 'E'}:
+    inc i
+    if i < number.len and number[i] in {'+', '-'}: inc i
+    let exponentStart = i
+    while i < number.len and number[i] in {'0'..'9'}: inc i
+    if i == exponentStart: return value
+  if i != number.len: return value
+  try:
+    let parsed = parseFloat(number)
+    if classify(parsed) notin {fcNan, fcInf, fcNegInf} and
+        classify(float32(parsed)) notin {fcNan, fcInf, fcNegInf}:
+      return number
+  except ValueError:
+    discard
+  value
+
 proc mapStyleValue(prop, value: string): string =
   ## Map a CSS-like style value to Freya's expected format.
   ## Most values pass through; special cases are handled here.
+  # Classify existing mapped targets, including the already-supported native
+  # radius aliases. Padding sides keep their existing shared-padding behavior.
+  if mapStyleProperty(prop) in ["width", "height", "font_size", "padding",
+      "corner_radius", "corner-radius", "border_radius"]:
+    return scalarPixelValue(value)
   case prop
   of "flex-direction":
     # CSS: "row" / "column" -> Freya: "horizontal" / "vertical"
