@@ -53,8 +53,11 @@ suite "GUI - Render Plan Smoke Tests":
     check plan.hasKey("styles")
     let styles = plan["styles"]
     check styles["background"].getStr() == "#ff0000"
-    check styles["width"].getStr() == "200px"
-    check styles["height"].getStr() == "100px"
+    # Freya's native size parsers take unitless numbers, so the renderer
+    # hands a complete `<n>px` token over as `<n>` (see `scalarPixelValue`
+    # in renderer.nim; test_render_integration checks the same mapping).
+    check styles["width"].getStr() == "200"
+    check styles["height"].getStr() == "100"
 
   test "event_handler_in_render_plan":
     let r = FreyaRenderer()
