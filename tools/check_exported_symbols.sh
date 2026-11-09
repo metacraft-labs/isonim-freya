@@ -33,8 +33,9 @@
 #
 # This is `codetracer-specs/Testing/Verification-Harness-Traps.md` §18 —
 # *diagnose the class in the source; enumerate it in the linked image* —
-# and the remedy there is the one used here: read `nm -D` of a built
-# artifact. The identical gate lives in `isonim-gpui`, which had the same
+# and the remedy there is the one used here: read the export table of a
+# built artifact (`nm -D` on ELF, `nm -gU` on Mach-O; see the
+# enumeration below). The identical gate lives in `isonim-gpui`, which had the same
 # defect with six symbols instead of two.
 #
 # ## Why it builds the artifact itself
@@ -108,9 +109,37 @@ fi
 # What the image actually exports. `T` is a defined text symbol; `W` a
 # weak one. Filtered to the shim's own prefix so Rust runtime and libc
 # symbols do not enter the comparison.
-IMAGE_SYMS=$("$NM_BIN" -D --defined-only "$LIB_PATH" 2>/dev/null |
-	awk '$2 == "T" || $2 == "W" { print $3 }' |
-	grep "^$SYMBOL_PREFIX" | sort -u || true)
+#
+# The enumeration differs by object format, and getting it wrong reads
+# ZERO symbols rather than failing (the floor below is what catches it):
+#
+# - ELF (`.so`): the exports are the DYNAMIC symbol table, so `-D`.
+#   `--defined-only` drops the imports.
+# - Mach-O (`.dylib`): there is no separate dynamic symbol table for
+#   `-D` to select — `nm -D` on a dylib lists nothing — and the exports
+#   are the external (`-g`) defined (`-U`) entries of the one symbol
+#   table. A C symbol in Mach-O carries a leading underscore
+#   (`freya_x` is `_freya_x`), which is stripped once so the names
+#   compare against the `importc:` names below. `-gU` is understood by
+#   llvm-nm (what the nixpkgs darwin stdenv puts on PATH as `nm`) and by
+#   Apple's cctools nm alike:
+#   https://llvm.org/docs/CommandGuide/llvm-nm.html
+#   The `isonim-gpui` copy of this gate made the same correction; the
+#   underscore is stripped only on Mach-O here, so an ELF symbol that
+#   really is `_freya_…` is not mistaken for a binding's name.
+case "$LIB_NAME" in
+*.dylib)
+	IMAGE_SYMS=$("$NM_BIN" -gU "$LIB_PATH" 2>/dev/null |
+		awk '$2 == "T" || $2 == "W" { print $3 }' |
+		sed 's/^_//' |
+		grep "^$SYMBOL_PREFIX" | sort -u || true)
+	;;
+*)
+	IMAGE_SYMS=$("$NM_BIN" -D --defined-only "$LIB_PATH" 2>/dev/null |
+		awk '$2 == "T" || $2 == "W" { print $3 }' |
+		grep "^$SYMBOL_PREFIX" | sort -u || true)
+	;;
+esac
 IMAGE_COUNT=$(printf '%s\n' "$IMAGE_SYMS" | grep -c . || true)
 
 # What Nim will `dlsym` at process start. Read from the `importc:` pragma
