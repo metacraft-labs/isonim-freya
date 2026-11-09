@@ -3,7 +3,8 @@
 #
 # Usage: ./tools/generate_bindings.sh
 #
-# Requires: nbindgen (cargo install nbindgen), sed
+# Requires: nbindgen 0.0.1 (cargo install --locked nbindgen@0.0.1, the only
+# crates.io release; the fixups below are written against its output), sed, awk
 #
 # The raw nbindgen output needs several fixups because nbindgen doesn't fully
 # understand the Nim idioms we want:
@@ -29,11 +30,17 @@ nbindgen --crate freya-nim-shim "$SHIM_CRATE" -o "$RAW_OUTPUT" 2>&1 | grep -v '^
 echo "Raw nbindgen output saved to $RAW_OUTPUT"
 
 # Step 2: Extract function names from the raw output for validation
-RAW_FUNCS=$(grep -oP 'proc \K\w+(?=\*)' "$RAW_OUTPUT" | sort)
+# `sort -u`: nbindgen is cfg-blind and emits one proc per DECLARATION, so an
+# export with a feature-gated twin (`freya_render_to_pixels` /
+# `freya_free_pixels`, see `freya_headless_unavailable.rs`) appears twice.
+RAW_FUNCS=$(grep -oP 'proc \K\w+(?=\*)' "$RAW_OUTPUT" | sort -u)
 echo "Found $(echo "$RAW_FUNCS" | wc -l) function bindings in nbindgen output"
 
-# Step 3: Extract function names from Rust source for cross-check
-RUST_FUNCS=$(grep -oP 'pub extern "C" fn \K\w+' "$SHIM_CRATE/src/lib.rs" | sort)
+# Step 3: Extract function names from Rust source for cross-check. Every
+# module, and `pub unsafe extern "C"` too -- the same scan
+# tools/check_bindings.sh uses; reading `src/lib.rs` alone reported the
+# headless entry points as "extra".
+RUST_FUNCS=$(grep -rhoP 'pub (?:unsafe )?extern "C" fn \K\w+' "$SHIM_CRATE"/src/*.rs | sort -u)
 RUST_COUNT=$(echo "$RUST_FUNCS" | wc -l)
 echo "Found $RUST_COUNT extern \"C\" functions in Rust source"
 
@@ -76,29 +83,51 @@ else:
 
 HEADER
 
-# Extract types (EventCallback, RootBuilderCallback) from raw output and fix them
-# nbindgen emits: type EventCallback* = proc(): void
-# We want:        type EventCallback* = proc() {.cdecl.}
-echo '## C function pointer type for event callbacks from Nim.' >> "$FINAL_OUTPUT"
-echo 'type EventCallback* = proc() {.cdecl.}' >> "$FINAL_OUTPUT"
-echo '' >> "$FINAL_OUTPUT"
-echo 'type RootBuilderCallback* = proc(root: FreyaElement) {.cdecl.}' >> "$FINAL_OUTPUT"
+# Callback types. nbindgen 0.0.1 (the crates.io release) already emits them
+# as Nim proc types with `{.cdecl.}`, e.g.
+#   type RootBuilderCallback* = proc (root: ptr FreyaElement) {.cdecl.}
+# so they are copied over -- all of them, rather than a hard-coded list that
+# silently goes stale when the shim adds a callback (the window callbacks and
+# `EventDispatcher` were missing from the list this replaced, and the file
+# did not compile). Only the FreyaElement spelling is fixed up: ours is
+# already a pointer.
+echo '## C function pointer types for callbacks from the shim.' >> "$FINAL_OUTPUT"
+grep -E '^type [A-Za-z0-9_]+\* = proc' "$RAW_OUTPUT" | \
+    sed 's/ptr FreyaElement/FreyaElement/g' >> "$FINAL_OUTPUT"
 echo '' >> "$FINAL_OUTPUT"
 echo '{.push cdecl, dynlib: shimLib.}' >> "$FINAL_OUTPUT"
 echo '' >> "$FINAL_OUTPUT"
 
 # Extract proc declarations from raw output and apply fixups
-# - Replace `pointer` with `cstring` for string parameters
-# - Replace `ptr FreyaElement` with `FreyaElement` (since our FreyaElement is already a ptr)
-# - Replace `: void` with nothing (Nim style)
-# - Add dynlib pragma
-grep '^proc \|^                ' "$RAW_OUTPUT" | \
-    sed 's/: pointer/: cstring/g' | \
+# - Keep only the FIRST declaration of each proc. nbindgen is cfg-blind, and
+#   an export with a feature-gated twin is declared twice with an identical C
+#   ABI; two `proc` definitions of one name do not compile.
+# - C strings (`pointer` from older nbindgen, `ptr char` from 0.0.1) become
+#   `cstring`
+# - `ptr FreyaElement` (and its parenthesised return form) becomes
+#   `FreyaElement`, since our FreyaElement is already a ptr
+# - Drop a `: void` return (older nbindgen)
+awk '
+    /^proc / {
+        match($0, /^proc [A-Za-z0-9_]+/)
+        name = substr($0, 6, RLENGTH - 5)
+        keep = !(name in seen)
+        seen[name] = 1
+        if (keep) print
+        next
+    }
+    /^                / { if (keep) print; next }
+    { keep = 0 }
+' "$RAW_OUTPUT" | \
+    sed 's/(ptr FreyaElement)/FreyaElement/g' | \
     sed 's/ptr FreyaElement/FreyaElement/g' | \
+    sed 's/(ptr char)/cstring/g' | \
+    sed 's/ptr char/cstring/g' | \
+    sed 's/: pointer/: cstring/g' | \
     sed 's/: void {/ {/g' | \
     sed 's/): void {/) {/g' | \
     sed 's/(): void/() /g' | \
-    sed 's/): FreyaElement/): FreyaElement\n /g' >> "$FINAL_OUTPUT"
+    sed 's/): FreyaElement {/): FreyaElement\n  {/g' >> "$FINAL_OUTPUT"
 
 echo '' >> "$FINAL_OUTPUT"
 echo '{.pop.}' >> "$FINAL_OUTPUT"

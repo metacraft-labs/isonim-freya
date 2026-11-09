@@ -20,52 +20,104 @@ elif defined(windows):
 else:
   const shimLib = "libfreya_nim_shim.so"
 
-## C function pointer type for event callbacks from Nim.
-type EventCallback* = proc() {.cdecl.}
-
-type RootBuilderCallback* = proc(root: FreyaElement) {.cdecl.}
+## C function pointer types for callbacks from the shim.
+type EventCallback* = proc () {.cdecl.}
+type RootBuilderCallback* = proc (root: FreyaElement) {.cdecl.}
+type CloseCallback* = proc (): uint8 {.cdecl.}
+type FocusCallback* = proc (focused: uint8) {.cdecl.}
+type ResizeCallback* = proc (width: float64, height: float64) {.cdecl.}
+type EventDispatcher* = proc (callback_id: int32) {.cdecl.}
 
 {.push cdecl, dynlib: shimLib.}
 
+proc freya_add_event_listener*(node: FreyaElement,
+                               event: cstring,
+                               handler: EventCallback) {.importc: "freya_add_event_listener".}
+proc freya_add_event_listener_id*(node: FreyaElement,
+                                  event: cstring,
+                                  callback_id: int32) {.importc: "freya_add_event_listener_id".}
+proc freya_append_child*(parent: FreyaElement,
+                         child: FreyaElement) {.importc: "freya_append_child".}
+proc freya_child_count*(node: FreyaElement): uint64 {.importc: "freya_child_count".}
+proc freya_close_window*(window_id: uint32): uint8 {.importc: "freya_close_window".}
 proc freya_create_element*(tag: cstring): FreyaElement
   {.importc: "freya_create_element".}
 proc freya_create_text_node*(text: cstring): FreyaElement
   {.importc: "freya_create_text_node".}
-proc freya_append_child*(parent: FreyaElement,
-                         child: FreyaElement) {.importc: "freya_append_child".}
+proc freya_create_window*(title: cstring,
+                          width: float64,
+                          height: float64): uint32 {.importc: "freya_create_window".}
+proc freya_destroy_element*(handle: FreyaElement) {.importc: "freya_destroy_element".}
+proc freya_destroy_tree*(handle: FreyaElement) {.importc: "freya_destroy_tree".}
+proc freya_destroy_window*(window_id: uint32) {.importc: "freya_destroy_window".}
+proc freya_dispatch_event*(node: FreyaElement,
+                           event: cstring) {.importc: "freya_dispatch_event".}
+proc freya_first_child*(node: FreyaElement): FreyaElement
+  {.importc: "freya_first_child".}
+proc freya_free_pixels*(ptrx: ptr uint8, len: uint) {.importc: "freya_free_pixels".}
+proc freya_free_string*(ptrx: cstring) {.importc: "freya_free_string".}
+proc freya_get_attribute*(node: FreyaElement,
+                          name: cstring,
+                          buf: cstring,
+                          buf_len: uint64): uint64 {.importc: "freya_get_attribute".}
+proc freya_get_tag*(node: FreyaElement,
+                    buf: cstring,
+                    buf_len: uint64): uint64 {.importc: "freya_get_tag".}
+proc freya_get_text_content*(node: FreyaElement,
+                             buf: cstring,
+                             buf_len: uint64): uint64 {.importc: "freya_get_text_content".}
 proc freya_insert_before*(parent: FreyaElement,
                           child: FreyaElement,
                           reference: FreyaElement) {.importc: "freya_insert_before".}
-proc freya_remove_child*(parent: FreyaElement,
-                         child: FreyaElement) {.importc: "freya_remove_child".}
-proc freya_set_attribute*(node: FreyaElement,
-                          name: cstring,
-                          value: cstring) {.importc: "freya_set_attribute".}
-proc freya_remove_attribute*(node: FreyaElement,
-                             name: cstring) {.importc: "freya_remove_attribute".}
-proc freya_set_text_content*(node: FreyaElement,
-                             text: cstring) {.importc: "freya_set_text_content".}
-proc freya_set_style*(node: FreyaElement,
-                      prop: cstring,
-                      value: cstring) {.importc: "freya_set_style".}
-proc freya_add_event_listener*(node: FreyaElement,
-                               event: cstring,
-                               handler: EventCallback) {.importc: "freya_add_event_listener".}
-proc freya_first_child*(node: FreyaElement): FreyaElement
-  {.importc: "freya_first_child".}
-proc freya_next_sibling*(node: FreyaElement): FreyaElement
-  {.importc: "freya_next_sibling".}
-proc freya_parent_node*(node: FreyaElement): FreyaElement
-  {.importc: "freya_parent_node".}
 proc freya_launch*(title: cstring,
                    width: float64,
                    height: float64,
                    root_builder: RootBuilderCallback) {.importc: "freya_launch".}
-proc freya_dispatch_event*(node: FreyaElement,
-                           event: cstring) {.importc: "freya_dispatch_event".}
-proc freya_destroy_element*(handle: FreyaElement) {.importc: "freya_destroy_element".}
-proc freya_destroy_tree*(handle: FreyaElement) {.importc: "freya_destroy_tree".}
+proc freya_next_sibling*(node: FreyaElement): FreyaElement
+  {.importc: "freya_next_sibling".}
+proc freya_node_id*(handle: FreyaElement): uint64 {.importc: "freya_node_id".}
+proc freya_notify_focus*(window_id: uint32, focused: uint8) {.importc: "freya_notify_focus".}
+proc freya_notify_resize*(window_id: uint32,
+                          width: float64,
+                          height: float64) {.importc: "freya_notify_resize".}
+proc freya_nth_child*(node: FreyaElement,
+                      index: uint64): FreyaElement
+  {.importc: "freya_nth_child".}
+proc freya_on_close*(window_id: uint32, callback: CloseCallback) {.importc: "freya_on_close".}
+proc freya_on_focus*(window_id: uint32, callback: FocusCallback) {.importc: "freya_on_focus".}
+proc freya_on_resize*(window_id: uint32, callback: ResizeCallback) {.importc: "freya_on_resize".}
+proc freya_parent_node*(node: FreyaElement): FreyaElement
+  {.importc: "freya_parent_node".}
+proc freya_remove_attribute*(node: FreyaElement,
+                             name: cstring) {.importc: "freya_remove_attribute".}
+proc freya_remove_child*(parent: FreyaElement,
+                         child: FreyaElement) {.importc: "freya_remove_child".}
+proc freya_render_plan_element_count*(root: FreyaElement): uint32 {.importc: "freya_render_plan_element_count".}
+proc freya_render_plan_json*(root: FreyaElement): cstring {.importc: "freya_render_plan_json".}
+proc freya_render_to_pixels*(width: uint32,
+                             height: uint32,
+                             scale: float32,
+                             out_ptr: ptr (ptr uint8),
+                             out_len: ptr uint): int32 {.importc: "freya_render_to_pixels".}
+proc freya_request_repaint*() {.importc: "freya_request_repaint".}
 proc freya_reset_tree*() {.importc: "freya_reset_tree".}
+proc freya_reset_windows*() {.importc: "freya_reset_windows".}
+proc freya_set_attribute*(node: FreyaElement,
+                          name: cstring,
+                          value: cstring) {.importc: "freya_set_attribute".}
+proc freya_set_event_dispatcher*(dispatcher: EventDispatcher) {.importc: "freya_set_event_dispatcher".}
+proc freya_set_root_element*(handle: FreyaElement) {.importc: "freya_set_root_element".}
+proc freya_set_style*(node: FreyaElement,
+                      prop: cstring,
+                      value: cstring) {.importc: "freya_set_style".}
+proc freya_set_text_content*(node: FreyaElement,
+                             text: cstring) {.importc: "freya_set_text_content".}
+proc freya_show_window*(window_id: uint32): uint8 {.importc: "freya_show_window".}
+proc freya_take_repaint_request*(): uint8 {.importc: "freya_take_repaint_request".}
 proc freya_tree_node_count*(): uint64 {.importc: "freya_tree_node_count".}
+proc freya_verify_render_plan*(root: FreyaElement): uint8 {.importc: "freya_verify_render_plan".}
+proc freya_window_height*(window_id: uint32): float64 {.importc: "freya_window_height".}
+proc freya_window_state*(window_id: uint32): uint8 {.importc: "freya_window_state".}
+proc freya_window_width*(window_id: uint32): float64 {.importc: "freya_window_width".}
 
 {.pop.}
