@@ -205,14 +205,29 @@ type
   FreyaTestSpec = object
     ## One entry per HEADLESS-runnable test file. ``source`` is the
     ## repo-relative ``.nim`` path; ``binary`` is the ``build/test-bin/<stem>``
-    ## output; ``consumesIsonim`` selects the isonim-consumer path group.
+    ## output (``<stem>.exe`` on Windows, see ``testBinaryExt``);
+    ## ``consumesIsonim`` selects the isonim-consumer path group.
     source: string
     binary: string
     consumesIsonim: bool
 
+# The test binary's file extension on the host the graph is built for.
+# ``nim c --out:build/test-bin/<stem>`` writes ``<stem>.exe`` on Windows, and
+# ``buildNimUnittest.build`` declares that ``.exe`` as the compile edge's
+# output, but it hands the ``binary`` it was given UNCHANGED to the typed
+# ``testBinary`` that ``edge.testBinary.run`` executes; its contract is that
+# the caller names the runnable file. Naming ``<stem>`` here therefore made
+# every Windows execute edge launch a file that does not exist
+# (``CreateProcessW failed (err=2): …\build\test-bin\test_basic``). With the
+# suffix in ``binary`` itself, the compile output, the typed binary and the
+# executed path are the same file, and ``buildNimUnittest`` does not append a
+# second ``.exe``. The nimcache directory and the action ids derive from
+# ``splitFile(binary).name``, so they are identical on every host.
+const testBinaryExt = when defined(windows): ".exe" else: ""
+
 proc spec(stem: string; consumesIsonim = false): FreyaTestSpec =
   FreyaTestSpec(source: "tests/" & stem & ".nim",
-    binary: "build/test-bin/" & stem,
+    binary: "build/test-bin/" & stem & testBinaryExt,
     consumesIsonim: consumesIsonim)
 
 # The HEADLESS native corpus. The four self-only tests + the headless
