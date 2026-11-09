@@ -3,7 +3,7 @@
 ## Or without display (render plan only): nim c -r tests/test_gui.nim
 ##
 ## Build & run:
-##   LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_gui.nim
+##   ./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_gui.nim
 
 import unittest
 import std/[json, strutils]

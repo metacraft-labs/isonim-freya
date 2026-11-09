@@ -97,17 +97,23 @@ jobs:
       - name: nim check (renderer)
         run: nix develop -c bash -c "nim check src/isonim_freya/renderer.nim"
 
+      # Every test below loads the shim through `tools/with_shim_path.sh`,
+      # which puts `<cargo target dir>/debug` on `LD_LIBRARY_PATH`. The
+      # target dir is asked of cargo rather than assumed to be
+      # `rust/target`: some self-hosted runners set `CARGO_TARGET_DIR` to a
+      # directory outside the checkout, and there the step above succeeded
+      # while each test died with "could not load: libfreya_nim_shim.so".
       - name: Run basic tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r tests/test_basic.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r tests/test_basic.nim"
 
       - name: Run renderer tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r tests/test_renderer.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r tests/test_renderer.nim"
 
       - name: Run window tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r tests/test_window.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r tests/test_window.nim"
 
       - name: Run bindings tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r tests/test_bindings.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r tests/test_bindings.nim"
 
       - name: Validate Rust/Nim binding consistency
         run: nix develop -c bash -c "./tools/check_bindings.sh"
@@ -120,20 +126,20 @@ jobs:
         run: nix develop -c bash -c "./tools/check_exported_symbols.sh"
 
       - name: Run cross-renderer tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_cross_renderer.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_cross_renderer.nim"
 
       - name: Run render integration tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_render_integration.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_render_integration.nim"
 
       - name: Run structural comparison tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_structural_comparison.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_structural_comparison.nim"
 
       # NH-M1: the reactive root seam (`renderFreya`). Runs here rather than
       # only under `just test-all`, which no workflow invokes — a verification
       # test that never runs in CI stops discriminating the moment the seam
       # regresses.
       - name: Run reactive root tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_render_native_freya_reactive.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_render_native_freya_reactive.nim"
 
       # The task-manager demo's end-to-end test lives in
       # `isonim-examples/tests/test_freya_leaves_end_to_end.nim` since
@@ -142,7 +148,7 @@ jobs:
       # renderer parity (TUI / web / GPUI / Freya) is covered there.
 
       - name: Run GUI tests (render plan only)
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_gui.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_gui.nim"
 
   gui-tests:
     name: GUI tests (headless)

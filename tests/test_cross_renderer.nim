@@ -8,7 +8,7 @@
 ##   just rust-build
 ##
 ## Run with:
-##   LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_cross_renderer.nim
+##   ./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_cross_renderer.nim
 
 import unittest
 import std/tables

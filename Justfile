@@ -36,34 +36,39 @@ rust-test:
     cd rust && cargo test
 
 # Run Nim tests (requires Rust shim to be built: just rust-build)
+#
+# `tools/with_shim_path.sh` puts the shim's directory on LD_LIBRARY_PATH.
+# That directory is `<cargo target dir>/debug`, and the target dir is
+# whatever cargo resolves (`CARGO_TARGET_DIR`, `.cargo/config.toml`), not
+# necessarily `rust/target`; `tools/cargo_target_dir.sh` asks cargo for it.
 test:
     nim c -r --hints:off tests/test_nimcache_is_worktree_local.nim
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --nimcache:nimcache/test_basic tests/test_basic.nim
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --nimcache:nimcache/test_renderer tests/test_renderer.nim
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --nimcache:nimcache/test_window tests/test_window.nim
+    ./tools/with_shim_path.sh nim c -r --nimcache:nimcache/test_basic tests/test_basic.nim
+    ./tools/with_shim_path.sh nim c -r --nimcache:nimcache/test_renderer tests/test_renderer.nim
+    ./tools/with_shim_path.sh nim c -r --nimcache:nimcache/test_window tests/test_window.nim
 
 # Run cross-renderer tests (M5 — requires Rust shim and isonim)
 test-cross:
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_cross_renderer tests/test_cross_renderer.nim
+    ./tools/with_shim_path.sh nim c -r --path:../isonim/src --nimcache:nimcache/test_cross_renderer tests/test_cross_renderer.nim
 
 # Build the canonical task-app demo (lives in isonim-examples since
 # EX-M4; this recipe just defers to that repo's composition root).
 demo-build:
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c --path:../isonim/src --path:../isonim-examples --nimcache:nimcache/demo ../isonim-examples/task_app/main_freya.nim
+    ./tools/with_shim_path.sh nim c --path:../isonim/src --path:../isonim-examples --nimcache:nimcache/demo ../isonim-examples/task_app/main_freya.nim
 
 # Run the canonical task-app demo (headless mode). Sources live in
 # `isonim-examples/task_app/` per the EX-M4 migration; the Rust shim
 # is still built in this repo.
 demo-run:
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --path:../isonim-examples --nimcache:nimcache/demo ../isonim-examples/task_app/main_freya.nim
+    ./tools/with_shim_path.sh nim c -r --path:../isonim/src --path:../isonim-examples --nimcache:nimcache/demo ../isonim-examples/task_app/main_freya.nim
 
 # Run render integration tests (G3-F — requires Rust shim and isonim)
 test-integration:
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_render_integration tests/test_render_integration.nim
+    ./tools/with_shim_path.sh nim c -r --path:../isonim/src --nimcache:nimcache/test_render_integration tests/test_render_integration.nim
 
 # Run structural comparison tests (G4 — requires Rust shim and isonim)
 test-structural:
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_structural_comparison tests/test_structural_comparison.nim
+    ./tools/with_shim_path.sh nim c -r --path:../isonim/src --nimcache:nimcache/test_structural_comparison tests/test_structural_comparison.nim
 
 # NH-M1: the reactive root seam (`renderFreya`). Requires the Rust shim —
 # every `freya_*` binding is `dynlib`, so without `just rust-build` the binary
@@ -71,7 +76,7 @@ test-structural:
 # is deliberate: there is no skip arm, because a suite that went green without
 # the shim would be asserting nothing about Freya.
 test-reactive-root:
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src --nimcache:nimcache/test_render_native_freya_reactive tests/test_render_native_freya_reactive.nim
+    ./tools/with_shim_path.sh nim c -r --path:../isonim/src --nimcache:nimcache/test_render_native_freya_reactive tests/test_render_native_freya_reactive.nim
 
 # Run all tests (Rust + Nim + cross-renderer + integration). The
 # task-manager demo's tests live in `isonim-examples/tests/` since
@@ -83,7 +88,7 @@ test-reactive-root:
 # without it the binary does not start. No skip arm — a suite that went
 # green without the shim would be asserting nothing about Freya.
 test-reconciler:
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --path:../isonim/src -d:isonimHmr --nimcache:nimcache/test_freya_reconciler tests/test_freya_reconciler_identity.nim
+    ./tools/with_shim_path.sh nim c -r --path:../isonim/src -d:isonimHmr --nimcache:nimcache/test_freya_reconciler tests/test_freya_reconciler_identity.nim
 
 test-all: check-exported-symbols rust-test test test-cross test-integration test-structural test-reactive-root test-reconciler test-pixel-lengths
 
@@ -103,7 +108,7 @@ test-gui-record:
 
 # Internal: actual GUI test commands (run inside headless display)
 _run-gui-tests:
-    LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} nim c -r --nimcache:nimcache/test_gui -d:freyaBackend --path:../isonim/src tests/test_gui.nim
+    ./tools/with_shim_path.sh nim c -r --nimcache:nimcache/test_gui -d:freyaBackend --path:../isonim/src tests/test_gui.nim
 
 # Generate Nim bindings from Rust shim using nbindgen
 generate-bindings:

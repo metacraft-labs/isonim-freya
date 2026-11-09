@@ -61,7 +61,6 @@ case "$(uname -s)" in
 Darwin) LIB_NAME="libfreya_nim_shim.dylib" ;;
 *) LIB_NAME="libfreya_nim_shim.so" ;;
 esac
-LIB_PATH="$CRATE_DIR/target/debug/$LIB_NAME"
 
 # A floor, not a formality, and deliberately well under the current
 # figures (48 / 48 on 2026-09-18) rather than equal to them. Per §18's
@@ -99,6 +98,16 @@ fi
 
 echo "[check-exported-symbols] building the DEFAULT (feature-less) profile"
 (cd "$CRATE_DIR" && cargo build --quiet)
+
+# Where that build wrote the shim. Cargo's target dir is not always
+# `rust/target` (CARGO_TARGET_DIR, `.cargo/config.toml`), so it is asked of
+# cargo, in the same working directory as the build above. A target dir
+# that cannot be determined is a refusal, never a fallback guess.
+if ! TARGET_DIR="$("$REPO_ROOT/tools/cargo_target_dir.sh")"; then
+	echo "REFUSING TO REPORT: could not determine cargo's target directory." >&2
+	exit 2
+fi
+LIB_PATH="$TARGET_DIR/debug/$LIB_NAME"
 
 if [ ! -f "$LIB_PATH" ]; then
 	echo "REFUSING TO REPORT: cargo build succeeded but $LIB_PATH is absent." >&2

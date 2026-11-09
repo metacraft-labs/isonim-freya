@@ -22,7 +22,10 @@ PARENT.mkdir(parents=True, exist_ok=True)
 OUT = Path(tempfile.mkdtemp(prefix='run-', dir=PARENT))
 ENV = dict(os.environ)
 MINIMUM = int(ENV.get('ISONIM_TEST_MIN_AVAILABLE_BYTES', '0'))
-LIBRARY = ROOT / 'rust/target/debug' / ('libfreya_nim_shim.dylib' if os.uname().sysname == 'Darwin' else 'libfreya_nim_shim.so')
+# Cargo's target dir is not always rust/target (CARGO_TARGET_DIR, .cargo/config.toml);
+# tools/cargo_target_dir.sh asks cargo, and a failure there is a hard failure.
+TARGET_DIR = Path(subprocess.run([str(ROOT / 'tools/cargo_target_dir.sh')], check=True, stdout=subprocess.PIPE, text=True).stdout.strip())
+LIBRARY = TARGET_DIR / 'debug' / ('libfreya_nim_shim.dylib' if os.uname().sysname == 'Darwin' else 'libfreya_nim_shim.so')
 assert LIBRARY.is_file(), 'required default Rust shim missing; run just rust-build'
 ENV['LD_LIBRARY_PATH'] = str(LIBRARY.parent) + os.pathsep + ENV.get('LD_LIBRARY_PATH', '')
 print('retained ' + str(OUT), flush=True)
