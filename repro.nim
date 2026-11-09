@@ -2,7 +2,7 @@
 ##
 ## **Typed-Cross-Project-Deps rollout — a Nim CONSUMER of the isonim
 ## ecosystem (SC-11 develop-mode from-source sibling consumption) with a
-## PREBUILT Rust cdylib shim consumed at runtime via dynlib.**
+## Rust cdylib shim, built by a cargo edge, consumed at runtime via dynlib.**
 ## ``isonim-freya`` provides the Nim ``RendererBackend`` bindings for the
 ## Freya native GUI framework. Its ``src/isonim_freya/*`` module tree is a
 ## Nim binding layer over a Rust ``cdylib`` (``rust/freya-nim-shim``):
@@ -15,17 +15,23 @@
 ## into every test binary (via ``extraPassL``), so the shim ``dlopen``s from
 ## its rpath with no runtime env at all.
 ##
-## **The Rust shim is a PREBUILT native artifact, not a reprobuild edge.**
-## reprobuild's dev shell + typed-tool surface model ``nim c`` compiles; it
-## has NO ``cargo`` build tool, so the ``freya-nim-shim`` cdylib cannot be
-## modelled as a reprobuild build edge here. Like ``ct-print`` for the Rust
-## recorders or the vendored ``.so`` in the libvterm corpus, it is built
-## out-of-band (``just rust-build`` → ``rust/target/debug/libfreya_nim_shim.so``,
-## gitignored) BEFORE ``repro build``/``repro test`` run. The default
-## (no-feature) shim provides the shadow-tree + render-plan API the whole
-## headless corpus exercises; the Skia/GPU ``freya-backend`` /
-## ``freya-headless`` features are only needed by the display-gated GUI arm
-## (deferred, see below).
+## **The Rust shim is a cargo build edge** (``cargo.build`` from
+## ``repro_dsl_stdlib/packages/cargo``, collected into ``default``, the shape
+## ``isonim-gpui/repro.nim`` uses for its shim). It builds the DEFAULT
+## (no-feature) profile → ``rust/target/debug/libfreya_nim_shim.so``, which
+## provides the shadow-tree + render-plan API the whole headless corpus
+## exercises; the Skia/GPU ``freya-backend`` / ``freya-headless`` features are
+## only needed by the display-gated GUI arm (deferred, see below). Every test
+## BUILD edge runs ``after`` it and every EXECUTE edge lists the library in
+## ``requiredBinaries``, so the shim is built before a test runs and a changed
+## shim re-runs the tests.
+##
+## This used to be a PREBUILT artifact built out-of-band (``just rust-build``)
+## BEFORE ``repro build``/``repro test`` -- on the stated ground that
+## reprobuild had no ``cargo`` tool. It has one, and nothing in
+## ``.github/workflows/ci-reprobuild.yml`` builds the shim before ``repro
+## test`` runs, so in a fresh checkout every execute edge died with
+## ``could not load: libfreya_nim_shim.so``.
 ##
 ## One landed workspace Nim-library producer plus its transitive platform
 ## seam are consumed from source at build time:
@@ -157,9 +163,9 @@
 ## (C) **Rust ``cargo test`` corpus** (``rust/freya-nim-shim/tests/*.rs`` —
 ##     ``freya_rendering.rs``, ``test_headless_render.rs``) + the ``Justfile``
 ##     ``rust-test`` / ``test-gui-record`` recipes. These exercise the Rust
-##     side directly; reprobuild's dev shell has no ``cargo`` typed tool, so
-##     the Rust unit corpus is NOT modelled as reprobuild edges (the shim is
-##     a prebuilt native artifact here, per the header). Run via the repo's
+##     side directly; only the shim's BUILD is an edge here (see the
+##     header), so the Rust unit corpus is NOT modelled as reprobuild
+##     edges. Run via the repo's
 ##     own ``just rust-test`` in its Rust dev shell. Out of the Nim ``nim c``
 ##     test scope this recipe covers.
 ##
@@ -171,6 +177,7 @@
 
 import std/os
 import repro_project_dsl
+import repro_dsl_stdlib/foreign_env
 
 # ``ct_test_nim_unittest`` supplies the ``buildNimUnittest.build(...)``
 # typed-tool used by every test BUILD edge and the ``edge.testBinary.run(...)``
@@ -183,15 +190,14 @@ import repro_project_dsl
 # results and exits non-zero on failure.
 import ct_test_nim_unittest
 
-# Absolute path to the prebuilt Rust cdylib directory. ``currentSourcePath``
+# Absolute path to the Rust cdylib's output directory. ``currentSourcePath``
 # is this ``repro.nim`` at the repo root, so ``parentDir`` is the repo root;
 # joining ``rust/target/debug`` + ``absolutePath`` yields the directory that
 # holds ``libfreya_nim_shim.so``. Baking this as an rpath onto every test
 # binary lets the ``{.dynlib: "libfreya_nim_shim.so".}`` FFI ``dlopen`` the
 # shim at run time with NO ``LD_LIBRARY_PATH`` (matching the ``Justfile``'s
 # ``LD_LIBRARY_PATH=rust/target/debug`` intent, hermetically). The shim is
-# prebuilt out-of-band (``just rust-build``); it is not a reprobuild edge
-# (reprobuild has no ``cargo`` tool — see the header).
+# built by the ``cargo.build`` edge below (see the header).
 const repoRoot = currentSourcePath().parentDir()
 let shimRpath = absolutePath(repoRoot / "rust" / "target" / "debug")
 
@@ -233,6 +239,15 @@ const freyaTestSpecs: seq[FreyaTestSpec] = @[
 ]
 
 package isonim_freya:
+  # ``repro exec`` (and so CI's ``dev-exec just build`` / ``just test`` in
+  # ci-reprobuild.yml) runs inside the flake's dev shell, which is where
+  # ``just`` and the shim's native libraries come from. Without it the
+  # environment had ``nim``, ``cargo`` and ``gcc`` from ``uses:`` but no
+  # ``just``. Same activation as ``isonim-gpui/repro.nim``.
+  devEnv:
+    when not defined(windows):
+      useFlakeDevShell()
+
   defaultToolProvisioning "path"
 
   uses:
@@ -243,6 +258,9 @@ package isonim_freya:
     # resolver under ``nix develop``.
     "nim >=2.0"
     "gcc >=12"
+    # ``cargo`` (+ its bundled ``rustc``) builds the ``freya-nim-shim``
+    # cdylib (the ``cargo.build`` edge below).
+    "cargo >=1.85"
 
     # The landed sibling Nim-library producers the isonim-consumer tests
     # consume from source (SC-11 develop-mode). Naming the workspace project
@@ -262,6 +280,33 @@ package isonim_freya:
   library isonim_freya
 
   build:
+    # ---- Native cargo build of the freya-nim-shim cdylib ---------------
+    #
+    # DEFAULT (feature-less) profile: no Skia, no GPU. The cargo workspace
+    # root is ``rust/Cargo.toml`` (the repo root has none), so the manifest is
+    # pinned; ``rust/Cargo.lock`` is tracked, so ``locked = true`` fails fast
+    # rather than silently re-resolving. The cdylib lands in
+    # ``rust/target/debug/`` and is declared as the edge's output.
+    const dylibName =
+      when defined(windows): "freya_nim_shim.dll"
+      elif defined(macosx): "libfreya_nim_shim.dylib"
+      else: "libfreya_nim_shim.so"
+    const shimLib = "rust/target/debug/" & dylibName
+    const cargoManifest = "rust/Cargo.toml"
+    const cargoLockfile = "rust/Cargo.lock"
+
+    let shimBuild = cargo.build(
+      locked = true,
+      manifestPath = cargoManifest,
+      actionId = "isonim-freya.cargo-build",
+      extraInputs = @[
+        cargoManifest, cargoLockfile,
+        "rust/freya-nim-shim/Cargo.toml",
+        "rust/freya-nim-shim/src",
+      ],
+      extraOutputs = @[shimLib])
+    discard collect("default", @[shimBuild])
+
     # Two-edge test template (Package-Model.md §"The test template"): one
     # compile BUILD edge + one EXECUTE edge per test file. BUILD halves
     # collect into ``test-builds`` (compile verification); EXECUTE halves
@@ -271,7 +316,7 @@ package isonim_freya:
     #
     # ``rpathPassL`` bakes the absolute shim directory as an ``-rpath`` onto
     # every test binary so its ``{.dynlib: "libfreya_nim_shim.so".}`` FFI
-    # ``dlopen``s the prebuilt cdylib at run time (no runtime
+    # ``dlopen``s the cargo-built cdylib at run time (no runtime
     # ``LD_LIBRARY_PATH``). ``$ORIGIN`` is not usable here (the binary lives
     # under ``build/test-bin/`` while the shim lives under ``rust/target/debug``),
     # so an absolute rpath is baked in.
@@ -296,16 +341,18 @@ package isonim_freya:
         binary = binary,
         paths = paths,
         extraPassL = extraPassL,
+        after = @[shimBuild],
         actionId = "isonim-freya.test_build." & stem,
         # ``src`` + the nimble file are declared inputs so the monitor tracks
         # the transitively imported ``src/isonim_freya/**`` binding tree.
-        extraInputs = @["src", "isonim_freya.nimble"])
+        extraInputs = @["src", "isonim_freya.nimble", shimLib])
       buildActions.add(edge.action)
       # ``registerImplicitName = false``: the BUILD edge already owns the
       # binary basename as the implicit target name; the explicit ``actionId``
       # is the execute edge's selector (two-edge shape).
       let executeEdge = edge.testBinary.run(
         actionId = "isonim-freya.test_execute." & stem,
+        requiredBinaries = @[shimLib],
         registerImplicitName = false)
       executeActions.add(executeEdge)
 
