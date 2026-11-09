@@ -35,5 +35,16 @@ image = { version = "0.25", default-features = false, features = ["png"], option
 [dev-dependencies]
 serial_test = "3"
 serde_json = "1"
-freya-testing = "0.3"
+# `skia-engine` is required, not optional. `freya-engine`'s `prelude` is
+# empty unless an engine feature is on, and `freya-testing` turns none on by
+# itself. Under `--features freya-backend` the `freya` dependency's default
+# `skia` feature unified it in, which hid this; in the DEFAULT build nothing
+# did, so `freya-core` failed with 337 unresolved-import errors and plain
+# `cargo test` could not compile. Naming the Skia engine here matches what
+# the feature-gated tests (`freya_rendering.rs`, and `freya_headless.rs`
+# behind `test_headless_render.rs`) render with. Not
+# `mocked-engine-development`: `freya-engine` glob-exports
+# both engines' items, so enabling it next to Skia would make every name
+# ambiguous in the feature builds.
+freya-testing = { version = "0.3", features = ["skia-engine"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
