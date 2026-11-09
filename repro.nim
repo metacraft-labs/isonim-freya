@@ -326,6 +326,26 @@ package isonim_freya:
       extraOutputs = @[shimLib])
     discard collect("default", @[shimBuild])
 
+    # Windows has no rpath. A ``{.dynlib: "freya_nim_shim.dll".}`` import
+    # is resolved by ``LoadLibrary`` with the leaf name, and the standard
+    # search order looks in the directory of the loading ``.exe`` first
+    # (https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-search-order).
+    # The cdylib lands in ``rust/target/debug``, which is neither beside
+    # ``build/test-bin/*.exe`` nor on ``PATH``, so a declared copy edge places
+    # it next to the test binaries. The source is the cargo edge's declared
+    # output, so the copy is keyed on the shim's content and stays cacheable.
+    # This is the same mechanism reprobuild uses to stage its own runtime
+    # DLLs beside its executables. Linux and macOS keep the baked rpath below.
+    var shimRuntime = @[shimLib]
+    var shimRuntimeAfter: seq[BuildActionDef] = @[]
+    when defined(windows):
+      const stagedShimLib = "build/test-bin/" & dylibName
+      let stageShim = fs.copyFile(shimLib, stagedShimLib,
+        after = @[shimBuild],
+        actionId = "isonim-freya.stage_shim_dll")
+      shimRuntime.add(stagedShimLib)
+      shimRuntimeAfter.add(stageShim)
+
     # Two-edge test template (Package-Model.md §"The test template"): one
     # compile BUILD edge + one EXECUTE edge per test file. BUILD halves
     # collect into ``test-builds`` (compile verification); EXECUTE halves
@@ -371,7 +391,8 @@ package isonim_freya:
       # is the execute edge's selector (two-edge shape).
       let executeEdge = edge.testBinary.run(
         actionId = "isonim-freya.test_execute." & stem,
-        requiredBinaries = @[shimLib],
+        after = shimRuntimeAfter,
+        requiredBinaries = shimRuntime,
         registerImplicitName = false)
       executeActions.add(executeEdge)
 
