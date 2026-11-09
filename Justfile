@@ -8,6 +8,13 @@ rust-check:
 rust-build:
     cd rust && cargo build
 
+# Build the project: the default (feature-less) Rust shim, the one artefact
+# this repository produces -- the Nim side is a source library. This is the
+# standard recipe `.github/workflows/ci-reprobuild.yml` cross-checks with
+# `just build`; without it that step failed with "Justfile does not contain
+# recipe `build`".
+build: rust-build
+
 # Build the Rust shim in release mode
 rust-build-release:
     cd rust && cargo build --release
