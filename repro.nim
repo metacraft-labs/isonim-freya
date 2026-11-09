@@ -280,6 +280,16 @@ package isonim_freya:
     # ``cargo`` (+ its bundled ``rustc``) builds the ``freya-nim-shim``
     # cdylib (the ``cargo.build`` edge below).
     "cargo >=1.85"
+    # ``just`` runs CI's ``just build`` / ``just test`` cross-checks
+    # (ci-reprobuild.yml's ``dev-exec just ...`` steps, under ``repro exec``).
+    # On Linux and macOS the flake dev shell supplies it, but ``devEnv:``
+    # activates that shell only off Windows, so on Windows nothing did and
+    # those steps failed with "The term 'just' is not recognized". Declaring
+    # it for every OS keeps one toolchain list: path mode takes ``just``
+    # from the caller's PATH and realizes the package's release archive
+    # only when it is absent there; where the flake shell is active, its
+    # ``just`` still comes first on ``repro exec``'s PATH.
+    "just >=1"
 
     # The landed sibling Nim-library producers the isonim-consumer tests
     # consume from source (SC-11 develop-mode). Naming the workspace project
