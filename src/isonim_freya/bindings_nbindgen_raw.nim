@@ -19,6 +19,17 @@ type EventCallback* = proc () {.cdecl.}
 # the builder callback but does NOT start an actual Freya window (that requires
 # the full Freya dependency to be available at link time). The actual Freya
 # integration will be completed in M2.
+#
+# With the `freya-backend` feature the call blocks in Freya's event loop
+# until the window is closed or `freya_quit` is honoured. A request made
+# before the call, or from inside `root_builder`, ends the loop once the
+# window has presented its first frame; `freya_presented_frame_count`
+# then reports how many frames it presented. A pending quit request is
+# dropped when `freya_launch` returns, in either build.
+#
+# winit allows ONE event loop per process (`EventLoopError::RecreationAttempt`
+# on a second `EventLoop` build), so with `freya-backend` `freya_launch`
+# can run once per process; a second call aborts the process.
 type RootBuilderCallback* = proc (root: ptr FreyaElement) {.cdecl.}
 
 type CloseCallback* = proc (): uint8 {.cdecl.}
@@ -208,6 +219,25 @@ proc freya_on_resize*(window_id: uint32, callback: ResizeCallback) {.importc: "f
 
 ## Return the parent of `node`, or null.
 proc freya_parent_node*(node: ptr FreyaElement): (ptr FreyaElement) {.importc: "freya_parent_node".}
+
+## Number of frames the Freya window presented in the current or most
+# recent `freya_launch` (reset when a launch starts and by
+# `freya_reset_windows`). Always 0 without `freya-backend`, where no
+# window is shown; a caller uses it to tell a launch that really drew
+# from one that returned without drawing.
+proc freya_presented_frame_count*(): uint64 {.importc: "freya_presented_frame_count".}
+
+## Ask the Freya event loop to end. Callable from any thread, and before
+# `freya_launch` (or from its `root_builder`): the request is latched, and
+# with `freya-backend` the loop honours it once the window has presented
+# its first frame. `freya_launch` drops a request it did not honour when
+# it returns, and `freya_reset_windows` drops a pending one.
+#
+# This is how a caller that is not a user at the keyboard -- a test
+# harness, a scripted run -- ends the otherwise unbounded loop. Without
+# `freya-backend` `freya_launch` does not block, and the request is
+# simply consumed when it returns.
+proc freya_quit*() {.importc: "freya_quit".}
 
 ## Remove attribute `name` from `node`.
 proc freya_remove_attribute*(node: ptr FreyaElement,

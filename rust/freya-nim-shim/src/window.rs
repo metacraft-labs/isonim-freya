@@ -9,7 +9,7 @@
 //! actual Freya window with event loop. Without the feature, the window state
 //! is maintained in-memory for testing and headless operation.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// C function pointer types for lifecycle callbacks.
@@ -76,6 +76,52 @@ pub fn request_repaint() {
 /// Check and clear the repaint flag. Returns true if a repaint was requested.
 pub fn take_repaint_request() -> bool {
     REPAINT_REQUESTED.swap(false, Ordering::AcqRel)
+}
+
+/// Set by `freya_quit` (from any thread) to ask the Freya event loop to
+/// end. The request is latched: one made before `freya_launch`, or from
+/// inside its `root_builder`, is honoured by that launch's loop. With
+/// `freya-backend` the loop's own quit poller (see `freya_app.rs`) consumes
+/// it, but only once the window has presented at least one frame, so a
+/// quit can never pre-empt the first paint. `freya_launch` also drops it
+/// when it returns -- in the default build there is no loop, so the launch
+/// returning IS the request being satisfied -- which keeps a request from
+/// outliving the launch it was meant for.
+pub static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Frames the Freya window has presented since the current (or most
+/// recent) `freya_launch` started its event loop. Reset at the start of
+/// every launch; it stays 0 in the default build, where no loop runs.
+pub static FRAMES_PRESENTED: AtomicU64 = AtomicU64::new(0);
+
+/// Request that the event loop end (see `QUIT_REQUESTED`).
+pub fn request_quit() {
+    QUIT_REQUESTED.store(true, Ordering::Release);
+}
+
+/// Observe the quit flag without consuming it.
+pub fn quit_requested() -> bool {
+    QUIT_REQUESTED.load(Ordering::Acquire)
+}
+
+/// Check and clear the quit flag. Returns true if a quit was requested.
+pub fn take_quit_request() -> bool {
+    QUIT_REQUESTED.swap(false, Ordering::AcqRel)
+}
+
+/// Record that the window presented one more frame.
+pub fn note_frame_presented() {
+    FRAMES_PRESENTED.fetch_add(1, Ordering::AcqRel);
+}
+
+/// Number of frames presented by the current or most recent launch.
+pub fn frames_presented() -> u64 {
+    FRAMES_PRESENTED.load(Ordering::Acquire)
+}
+
+/// Zero the presented-frame counter (start of a launch, test reset).
+pub fn reset_frames_presented() {
+    FRAMES_PRESENTED.store(0, Ordering::Release);
 }
 
 /// Global window registry. For now we support a single window (the common case).
@@ -204,6 +250,10 @@ pub fn reset_windows() {
     let mut windows = lock_windows();
     windows.clear();
     REPAINT_REQUESTED.store(false, Ordering::Release);
+    // A quit request or a frame count that survived a reset would leak
+    // into the next test's launch.
+    QUIT_REQUESTED.store(false, Ordering::Release);
+    FRAMES_PRESENTED.store(0, Ordering::Release);
 }
 
 #[cfg(test)]
@@ -343,6 +393,38 @@ mod tests {
         assert!(take_repaint_request());
         // Should be cleared after take
         assert!(!take_repaint_request());
+    }
+
+    #[test]
+    #[serial]
+    fn test_quit_request_is_latched_and_consumed_once() {
+        reset_windows();
+        assert!(!quit_requested());
+        assert!(!take_quit_request());
+
+        request_quit();
+        assert!(quit_requested(), "observing must not consume");
+        assert!(take_quit_request());
+        assert!(!take_quit_request(), "a taken request must not re-fire");
+
+        request_quit();
+        reset_windows();
+        assert!(!quit_requested(), "reset must drop a pending request");
+    }
+
+    #[test]
+    #[serial]
+    fn test_presented_frame_counter() {
+        reset_windows();
+        assert_eq!(frames_presented(), 0);
+        note_frame_presented();
+        note_frame_presented();
+        assert_eq!(frames_presented(), 2);
+        reset_frames_presented();
+        assert_eq!(frames_presented(), 0);
+        note_frame_presented();
+        reset_windows();
+        assert_eq!(frames_presented(), 0, "reset must zero the counter");
     }
 
     #[test]

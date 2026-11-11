@@ -27,12 +27,62 @@ pub fn active_window_id() -> u32 {
     ACTIVE_WINDOW_ID.load(std::sync::atomic::Ordering::Acquire)
 }
 
+/// How often the quit poller checks `window::QUIT_REQUESTED`. A request
+/// can arrive from any thread while the window is idle, and an idle Freya
+/// window draws no frames, so the poller cannot wait on the frame ticker.
+#[cfg(feature = "freya-backend")]
+const QUIT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+
+/// The root component of the WINDOWED app: `shadow_tree_app` plus the two
+/// lifecycle tasks a window needs and the headless paths
+/// (`freya_headless.rs`, `freya-testing`) must not get.
+///
+/// - A frame counter. Freya's ticker (`UsePlatform::new_ticker`) fires
+///   after every frame the renderer presents (`freya-winit`'s
+///   `RedrawRequested` handler calls `event_loop_tick` after rendering).
+///   A ticker only sees frames after it subscribes, and a window draws
+///   nothing until something asks it to, so the task requests one frame
+///   right after subscribing: the count then cannot stay at 0 merely
+///   because the first paint happened before the task started.
+/// - A quit poller. It turns `freya_quit` into `UsePlatform::exit`
+///   (`EventLoopMessage::ExitApp` -> winit `ActiveEventLoop::exit`), but
+///   only after at least one frame was presented, so a request made
+///   before launch still lets the window come up and draw.
+///
+/// `shadow_tree_app` is called as a function, not mounted as a child, so
+/// its hooks join this scope in a fixed order on every render.
+#[cfg(feature = "freya-backend")]
+fn windowed_shadow_tree_app() -> Element {
+    let platform = use_platform();
+    use_hook(move || {
+        spawn(async move {
+            let mut ticker = platform.new_ticker();
+            platform.request_animation_frame();
+            loop {
+                ticker.tick().await;
+                window::note_frame_presented();
+            }
+        });
+        spawn(async move {
+            loop {
+                tokio::time::sleep(QUIT_POLL_INTERVAL).await;
+                if window::frames_presented() > 0 && window::take_quit_request() {
+                    platform.exit();
+                    break;
+                }
+            }
+        });
+    });
+    shadow_tree_app()
+}
+
 /// Launch a Freya application window that renders the shadow tree.
 ///
 /// This function:
 /// 1. Creates a `LaunchConfig` with the specified title and size
 /// 2. Sets `shadow_tree_app` as the root component
-/// 3. Starts the Freya event loop (blocking)
+/// 3. Starts the Freya event loop (blocking until the window is closed or
+///    `freya_quit` is honoured; see `windowed_shadow_tree_app`)
 ///
 /// The shadow tree should already be populated before calling this function
 /// (typically via the `root_builder` callback in `freya_launch`).
@@ -61,13 +111,14 @@ pub fn launch_freya_app(title: &str, width: f64, height: f64, window_id: u32) {
     // the title string is acceptable -- it lives for the program's duration.
     let title_static: &'static str = Box::leak(title.to_string().into_boxed_str());
     launch_cfg(
-        shadow_tree_app,
+        windowed_shadow_tree_app,
         LaunchConfig::<()>::new()
             .with_title(title_static)
             .with_size(width, height),
     );
 
-    // The event loop has returned -- the user closed the window.
+    // The event loop has returned -- the user closed the window, or the
+    // quit poller honoured `freya_quit`.
     if window_id != 0 {
         window::close_window(window_id);
     }

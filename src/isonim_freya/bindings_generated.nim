@@ -88,6 +88,8 @@ proc freya_on_focus*(window_id: uint32, callback: FocusCallback) {.importc: "fre
 proc freya_on_resize*(window_id: uint32, callback: ResizeCallback) {.importc: "freya_on_resize".}
 proc freya_parent_node*(node: FreyaElement): FreyaElement
   {.importc: "freya_parent_node".}
+proc freya_presented_frame_count*(): uint64 {.importc: "freya_presented_frame_count".}
+proc freya_quit*() {.importc: "freya_quit".}
 proc freya_remove_attribute*(node: FreyaElement,
                              name: cstring) {.importc: "freya_remove_attribute".}
 proc freya_remove_child*(parent: FreyaElement,
