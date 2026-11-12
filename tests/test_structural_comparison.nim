@@ -5,7 +5,7 @@
 ## This replaces screenshot comparison with practical structural verification.
 ##
 ## Build & run:
-##   LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_structural_comparison.nim
+##   ./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_structural_comparison.nim
 
 import unittest
 import std/[json, strutils]
@@ -122,10 +122,10 @@ suite "Structural Verification - Task Manager":
       let styles = plan["styles"]
 
       check styles["background"].getStr() == "blue"
-      check styles["width"].getStr() == "400px"
+      check styles["width"].getStr() == "400"
       # flex-direction: column -> direction: vertical (Freya mapping)
       check styles["direction"].getStr() == "vertical"
-      check styles["padding"].getStr() == "16px"
+      check styles["padding"].getStr() == "16"
 
       dispose()
 

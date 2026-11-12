@@ -12,7 +12,7 @@
 ## drives actual Freya rendering.
 ##
 ## Build & run:
-##   LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_render_integration.nim
+##   ./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_render_integration.nim
 
 import unittest
 import std/[json, strutils]
@@ -176,8 +176,8 @@ suite "Render Plan - Styles":
     r.setStyle(el, "width", "200px")
     r.setStyle(el, "height", "100px")
     let plan = getPlan(el)
-    check plan["styles"]["width"].getStr == "200px"
-    check plan["styles"]["height"].getStr == "100px"
+    check plan["styles"]["width"].getStr == "200"
+    check plan["styles"]["height"].getStr == "100"
 
   test "CSS border-radius maps to corner_radius":
     let r = FreyaRenderer()

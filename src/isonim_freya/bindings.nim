@@ -140,6 +140,18 @@ proc freya_notify_focus*(window_id: uint32; focused: uint8)
 proc freya_reset_windows*()
   {.importc: "freya_reset_windows".}
 
+proc freya_quit*()
+  {.importc: "freya_quit".}
+  ## Ask the Freya event loop to end; callable from any thread, and before
+  ## `freya_launch` or from its root builder. With the `freya-backend`
+  ## shim the loop honours it once the window has presented its first
+  ## frame; `freya_launch` drops an unhonoured request when it returns.
+
+proc freya_presented_frame_count*(): uint64
+  {.importc: "freya_presented_frame_count".}
+  ## Frames the window presented in the current or most recent
+  ## `freya_launch`. Always 0 without the `freya-backend` shim.
+
 # --- Debugging / testing ---
 
 proc freya_reset_tree*()

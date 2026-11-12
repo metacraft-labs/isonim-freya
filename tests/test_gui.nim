@@ -3,7 +3,7 @@
 ## Or without display (render plan only): nim c -r tests/test_gui.nim
 ##
 ## Build & run:
-##   LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_gui.nim
+##   ./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_gui.nim
 
 import unittest
 import std/[json, strutils]
@@ -53,8 +53,11 @@ suite "GUI - Render Plan Smoke Tests":
     check plan.hasKey("styles")
     let styles = plan["styles"]
     check styles["background"].getStr() == "#ff0000"
-    check styles["width"].getStr() == "200px"
-    check styles["height"].getStr() == "100px"
+    # Freya's native size parsers take unitless numbers, so the renderer
+    # hands a complete `<n>px` token over as `<n>` (see `scalarPixelValue`
+    # in renderer.nim; test_render_integration checks the same mapping).
+    check styles["width"].getStr() == "200"
+    check styles["height"].getStr() == "100"
 
   test "event_handler_in_render_plan":
     let r = FreyaRenderer()
@@ -167,21 +170,98 @@ suite "GUI - Render Plan Smoke Tests":
     check plan["event_names"].len == 0
 
 # ============================================================================
-# Launch Integration Tests (no display server required)
+# Launch Integration Tests
 # ============================================================================
 #
-# These use freya_launch WITHOUT the freya-backend feature (default).
-# The launch function calls the root_builder callback, sets up the shadow
-# tree, and returns immediately. This tests the full Nim→FFI→Rust→callback→tree
-# pipeline.
+# These test the full Nim→FFI→Rust→callback→tree pipeline through
+# freya_launch, in both shim builds:
+#
+# - Default shim (no freya-backend, no display needed): freya_launch calls
+#   the root_builder callback, sets up the shadow tree and returns
+#   immediately.
+# - -d:freyaBackend with the shim built `--features freya-backend` (what
+#   `just test-gui-x11` runs, under Xvfb): freya_launch opens a real window
+#   and blocks in Freya's event loop. Each test asks the loop to end with
+#   `freya_quit()`, which the shim honours once the window has presented
+#   its first frame, and then checks that a frame really was presented.
+#   winit permits ONE event loop per process, so each launch test runs in
+#   a fresh child process: the parent re-executes this binary filtered to
+#   that one test (unittest's `"suite::test"` filter argument) and the
+#   child runs the body. The parent fails the test if the child exits
+#   non-zero, never reports that the body ran, or outlives
+#   `LaunchChildDeadline` -- a backstop that turns "the loop never ended"
+#   into a failure instead of a job that has to be killed.
 
-suite "GUI - Launch Integration Tests":
+const LaunchSuite = "GUI - Launch Integration Tests"
+
+when defined(freyaBackend):
+  import std/[os, osproc, strtabs, monotimes, times]
+
+  const
+    LaunchChildEnv = "ISONIM_FREYA_GUI_LAUNCH_CHILD"
+      ## Set in the child's environment to the path of a marker file the
+      ## child writes after the test body has run.
+    LaunchChildDeadlineSeconds {.intdefine.} = 120
+      ## Override with `-d:LaunchChildDeadlineSeconds=<n>`.
+    LaunchChildDeadline = initDuration(seconds = LaunchChildDeadlineSeconds)
+
+  proc runLaunchChild(testName: string): bool =
+    ## Run launch test `testName` in a child process; true only if it
+    ## exited 0 AND wrote its marker. The marker matters because a filter
+    ## that matches no test also exits 0.
+    let marker = getTempDir() / ("isonim-freya-gui-launch-" &
+      $getCurrentProcessId() & "-" & testName & ".ran")
+    removeFile(marker)
+    let env = newStringTable(modeCaseSensitive)
+    for key, value in envPairs():
+      env[key] = value
+    env[LaunchChildEnv] = marker
+    let child = startProcess(getAppFilename(),
+      args = [LaunchSuite & "::" & testName], env = env,
+      options = {poParentStreams})
+    let started = getMonoTime()
+    var timedOut = false
+    while child.running:
+      if getMonoTime() - started > LaunchChildDeadline:
+        timedOut = true
+        child.kill()
+        break
+      sleep(50)
+    let code = child.waitForExit()
+    child.close()
+    let ran = fileExists(marker)
+    removeFile(marker)
+    if timedOut:
+      checkpoint("launch child '" & testName & "' did not finish within " &
+        $LaunchChildDeadline & "; killed")
+    elif code != 0:
+      checkpoint("launch child '" & testName & "' exited " & $code)
+    elif not ran:
+      checkpoint("launch child '" & testName & "' exited 0 without running the test body")
+    result = not timedOut and code == 0 and ran
+
+template launchTest(name: static string; body: untyped) =
+  ## A launch test; see the section comment for how it runs per build.
+  test name:
+    when defined(freyaBackend):
+      if existsEnv(LaunchChildEnv):
+        # Latched before the launch; honoured after the first frame.
+        freya_quit()
+        body
+        check freya_presented_frame_count() >= 1
+        writeFile(getEnv(LaunchChildEnv), name)
+      else:
+        check runLaunchChild(name)
+    else:
+      body
+
+suite LaunchSuite:
   setup:
     freya_reset_tree()
     freya_reset_windows()
     resetCallbacks()
 
-  test "freya_launch_calls_root_builder":
+  launchTest "freya_launch_calls_root_builder":
     var builderCalled = false
     var rootElement: FreyaElement = nil
 
@@ -194,7 +274,7 @@ suite "GUI - Launch Integration Tests":
     check builderCalled
     check rootElement != nil
 
-  test "freya_launch_root_builder_can_build_tree":
+  launchTest "freya_launch_root_builder_can_build_tree":
     var rootEl: FreyaElement = nil
 
     proc builder(root: FreyaElement) {.cdecl.} =
@@ -216,7 +296,7 @@ suite "GUI - Launch Integration Tests":
     check textContent(rootEl).contains("Hello from Nim!")
     check textContent(rootEl).contains("Click me")
 
-  test "freya_launch_render_plan_valid_after_build":
+  launchTest "freya_launch_render_plan_valid_after_build":
     var rootEl: FreyaElement = nil
 
     proc builder(root: FreyaElement) {.cdecl.} =
@@ -241,7 +321,7 @@ suite "GUI - Launch Integration Tests":
     check plan["kind"].getStr == "Rect"  # root tag maps to Rect
     check plan["children"].len >= 1
 
-  test "freya_launch_event_handlers_work":
+  launchTest "freya_launch_event_handlers_work":
     var clickCount = 0
     var btnEl: FreyaElement = nil
 
@@ -269,7 +349,7 @@ suite "GUI - Launch Integration Tests":
     check clickCount == 3
     check textContent(btnEl) == "3"
 
-  test "freya_launch_counter_app_e2e":
+  launchTest "freya_launch_counter_app_e2e":
     var rootEl, countLabel, incBtn, decBtn: FreyaElement
     var count = 0
 

@@ -40,6 +40,7 @@
               pkgs.nim
               pkgs.nimble
               pkgs.just
+              pkgs.python3 # Checksum-bound native parser/FFI test orchestration.
               pkgs.pkg-config
               pkgs.openssl
               pkgs.cmake

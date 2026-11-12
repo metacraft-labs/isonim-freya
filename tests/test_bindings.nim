@@ -45,6 +45,9 @@ static:
   assert compiles(freya_launch("title".cstring, 800.0, 600.0, dummyBuilder))
   # 15. dispatchEvent
   assert compiles(freya_dispatch_event(e, "click".cstring))
+  # Ending the event loop, and observing that it drew.
+  assert compiles(freya_quit())
+  assert compiles(freya_presented_frame_count())
 
   # --- Memory management (2 functions) ---
   # 16. destroyElement

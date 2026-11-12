@@ -25,8 +25,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      # Nix comes from the shared setup-nix action, not from
+      # DeterminateSystems/nix-installer-action + magic-nix-cache-action:
+      # Nix is already on the self-hosted runners, and magic-nix-cache's
+      # restore pipes through `xz`, which is not on the runner PATH
+      # ("/bin/sh: xz: command not found"), so this step failed every job.
+      # Binary-cache traffic goes through the org Attic substituter instead.
+      - uses: metacraft-labs/devops-modules/.github/setup-nix@dev
+        with:
+          trusted-public-keys: ${{ vars.ATTIC_TRUSTED_PUBLIC_KEY }}
+          substituters: ${{ vars.ATTIC_SUBSTITUTER }}
 
       - name: cargo check
         run: nix develop -c bash -c "cd rust && cargo check"
@@ -48,16 +56,37 @@ jobs:
         runner: [[self-hosted, linux, x64], [self-hosted, linux, arm64], [self-hosted, macos, arm64]]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/checkout@v4
+      # The Nim suites compile against two sibling repositories that are not
+      # part of this checkout: `nim.cfg` puts `../isonim/src` and
+      # `../nim-everywhere/src` on the path. They used to come from a second
+      # `actions/checkout` with `path: ../isonim`, which `actions/checkout`
+      # refuses ("Repository path '.../isonim-freya/isonim' is not under
+      # '.../isonim-freya/isonim-freya'"), so this job died on its second
+      # step on every run, and nim-everywhere was never cloned at all.
+      #
+      # `setup-dev-env` clones each entry of `.github/sibling-repos` to
+      # `../<name>` at the revision recorded there, and provisions Nix with
+      # the shared setup-nix action (Nix is already on the self-hosted
+      # runners; binary-cache traffic goes through the org Attic
+      # substituter). Its token is minted from the org's CI Token Provider
+      # app: the app id is an org variable, the private key a secret.
+      - name: Generate CI token
+        id: app-token
+        uses: actions/create-github-app-token@v1
         with:
-          repository: metacraft-labs/isonim
-          path: ../isonim
-          token: ${{ secrets.GITHUB_TOKEN }}
+          app-id: ${{ vars.CI_TOKEN_PROVIDER_APP_ID }}
+          private-key: ${{ secrets.CI_TOKEN_PROVIDER_PRIVATE_KEY }}
+          owner: metacraft-labs
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: actions/checkout@v4
+
+      - name: Setup dev env (clones .github/sibling-repos)
+        uses: metacraft-labs/metacraft-github-actions/setup-dev-env@dev
+        with:
+          env-flavor: nix
+          gh-token: ${{ steps.app-token.outputs.token }}
+          substituters: ${{ vars.ATTIC_SUBSTITUTER }}
+          trusted-public-keys: ${{ vars.ATTIC_TRUSTED_PUBLIC_KEY }}
 
       - name: Build Rust shim
         run: nix develop -c bash -c "cd rust && cargo build"
@@ -68,17 +97,23 @@ jobs:
       - name: nim check (renderer)
         run: nix develop -c bash -c "nim check src/isonim_freya/renderer.nim"
 
+      # Every test below loads the shim through `tools/with_shim_path.sh`,
+      # which puts `<cargo target dir>/debug` on `LD_LIBRARY_PATH`. The
+      # target dir is asked of cargo rather than assumed to be
+      # `rust/target`: some self-hosted runners set `CARGO_TARGET_DIR` to a
+      # directory outside the checkout, and there the step above succeeded
+      # while each test died with "could not load: libfreya_nim_shim.so".
       - name: Run basic tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r tests/test_basic.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r tests/test_basic.nim"
 
       - name: Run renderer tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r tests/test_renderer.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r tests/test_renderer.nim"
 
       - name: Run window tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r tests/test_window.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r tests/test_window.nim"
 
       - name: Run bindings tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r tests/test_bindings.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r tests/test_bindings.nim"
 
       - name: Validate Rust/Nim binding consistency
         run: nix develop -c bash -c "./tools/check_bindings.sh"
@@ -91,20 +126,20 @@ jobs:
         run: nix develop -c bash -c "./tools/check_exported_symbols.sh"
 
       - name: Run cross-renderer tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_cross_renderer.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_cross_renderer.nim"
 
       - name: Run render integration tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_render_integration.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_render_integration.nim"
 
       - name: Run structural comparison tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_structural_comparison.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_structural_comparison.nim"
 
       # NH-M1: the reactive root seam (`renderFreya`). Runs here rather than
       # only under `just test-all`, which no workflow invokes — a verification
       # test that never runs in CI stops discriminating the moment the seam
       # regresses.
       - name: Run reactive root tests
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_render_native_freya_reactive.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_render_native_freya_reactive.nim"
 
       # The task-manager demo's end-to-end test lives in
       # `isonim-examples/tests/test_freya_leaves_end_to_end.nim` since
@@ -113,7 +148,7 @@ jobs:
       # renderer parity (TUI / web / GPUI / Freya) is covered there.
 
       - name: Run GUI tests (render plan only)
-        run: nix develop -c bash -c "LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_gui.nim"
+        run: nix develop -c bash -c "./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_gui.nim"
 
   gui-tests:
     name: GUI tests (headless)
@@ -124,16 +159,24 @@ jobs:
     runs-on: ${{ matrix.runner }}
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/checkout@v4
+      # Siblings and Nix: see the same steps in `nim-tests` above.
+      - name: Generate CI token
+        id: app-token
+        uses: actions/create-github-app-token@v1
         with:
-          repository: metacraft-labs/isonim
-          path: ../isonim
-          token: ${{ secrets.GITHUB_TOKEN }}
+          app-id: ${{ vars.CI_TOKEN_PROVIDER_APP_ID }}
+          private-key: ${{ secrets.CI_TOKEN_PROVIDER_PRIVATE_KEY }}
+          owner: metacraft-labs
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: actions/checkout@v4
+
+      - name: Setup dev env (clones .github/sibling-repos)
+        uses: metacraft-labs/metacraft-github-actions/setup-dev-env@dev
+        with:
+          env-flavor: nix
+          gh-token: ${{ steps.app-token.outputs.token }}
+          substituters: ${{ vars.ATTIC_SUBSTITUTER }}
+          trusted-public-keys: ${{ vars.ATTIC_TRUSTED_PUBLIC_KEY }}
 
       - name: Build Rust shim (with freya-backend)
         run: nix develop -c bash -c "cd rust && cargo build --features freya-backend"

@@ -67,7 +67,7 @@ just demo-run
 
 # Or from the isonim-examples repo's dev shell:
 cd ../isonim-examples
-LD_LIBRARY_PATH=../isonim-freya/rust/target/debug \
+../isonim-freya/tools/with_shim_path.sh \
   nim c -r task_app/main_freya.nim
 ```
 
@@ -78,7 +78,7 @@ First build the Rust shim with the Freya backend enabled, then compile with
 
 ```bash
 just rust-build          # build the shim library
-LD_LIBRARY_PATH=rust/target/debug:${LD_LIBRARY_PATH:-} \
+./tools/with_shim_path.sh \
   nim c -r -d:freyaGui --path:../isonim/src --path:../isonim-examples \
   ../isonim-examples/task_app/main_freya.nim
 ```
