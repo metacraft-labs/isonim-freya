@@ -27,3 +27,11 @@ tests/test_gui
 tests/test_render_native_freya_reactive
 tests/test_freya_reconciler_identity
 tests/test_nimcache_is_worktree_local
+
+# Reprobuild state and outputs: the per-checkout engine cache (`.repro/`) and
+# the test binaries `repro build` / `repro test` write under `build/test-bin/`
+# (plus `build/nimcache/` and `tools/test_pixel_lengths.py`'s
+# `build/pixel-lengths/`). Untracked, they left every checkout dirty after
+# a build.
+.repro/
+build/

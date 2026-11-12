@@ -425,6 +425,17 @@ pub extern "C" fn freya_parent_node(node: *mut FreyaElement) -> *mut FreyaElemen
 /// the builder callback but does NOT start an actual Freya window (that requires
 /// the full Freya dependency to be available at link time). The actual Freya
 /// integration will be completed in M2.
+///
+/// With the `freya-backend` feature the call blocks in Freya's event loop
+/// until the window is closed or `freya_quit` is honoured. A request made
+/// before the call, or from inside `root_builder`, ends the loop once the
+/// window has presented its first frame; `freya_presented_frame_count`
+/// then reports how many frames it presented. A pending quit request is
+/// dropped when `freya_launch` returns, in either build.
+///
+/// winit allows ONE event loop per process (`EventLoopError::RecreationAttempt`
+/// on a second `EventLoop` build), so with `freya-backend` `freya_launch`
+/// can run once per process; a second call aborts the process.
 pub type RootBuilderCallback = extern "C" fn(root: *mut FreyaElement);
 
 #[no_mangle]
@@ -451,6 +462,9 @@ pub extern "C" fn freya_launch(
 
     let root_handle = node_id_to_handle(root_id);
 
+    // The frame counter describes THIS launch.
+    window::reset_frames_presented();
+
     // Call back to Nim so it can build the initial tree
     root_builder(root_handle);
 
@@ -470,6 +484,38 @@ pub extern "C" fn freya_launch(
     {
         let _ = title_str;
     }
+
+    // A quit request targets the launch it was made for. The loop above
+    // consumes it itself when it honours it; otherwise -- the default
+    // build, which has no loop, or a window the user closed first -- the
+    // launch returning is what satisfies it, and it must not end the next
+    // launch after one frame.
+    window::take_quit_request();
+}
+
+/// Ask the Freya event loop to end. Callable from any thread, and before
+/// `freya_launch` (or from its `root_builder`): the request is latched, and
+/// with `freya-backend` the loop honours it once the window has presented
+/// its first frame. `freya_launch` drops a request it did not honour when
+/// it returns, and `freya_reset_windows` drops a pending one.
+///
+/// This is how a caller that is not a user at the keyboard -- a test
+/// harness, a scripted run -- ends the otherwise unbounded loop. Without
+/// `freya-backend` `freya_launch` does not block, and the request is
+/// simply consumed when it returns.
+#[no_mangle]
+pub extern "C" fn freya_quit() {
+    window::request_quit();
+}
+
+/// Number of frames the Freya window presented in the current or most
+/// recent `freya_launch` (reset when a launch starts and by
+/// `freya_reset_windows`). Always 0 without `freya-backend`, where no
+/// window is shown; a caller uses it to tell a launch that really drew
+/// from one that returned without drawing.
+#[no_mangle]
+pub extern "C" fn freya_presented_frame_count() -> u64 {
+    window::frames_presented()
 }
 
 /// RS-M14 Phase 1: set the global `ROOT_NODE_ID` to the given element
@@ -1542,6 +1588,25 @@ mod tests {
         assert_eq!(BUILDER_CALLED.load(Ordering::SeqCst), 1);
         // Root + label child = 2 nodes
         assert_eq!(freya_tree_node_count(), 2);
+    }
+
+    #[test]
+    #[serial]
+    #[cfg(not(feature = "freya-backend"))]
+    fn test_launch_consumes_quit_request_without_a_loop() {
+        // Without `freya-backend` there is no loop to honour `freya_quit`;
+        // the launch returning satisfies it, so it must not survive into
+        // the next launch, and no frame is ever presented.
+        freya_reset_tree();
+        freya_reset_windows();
+        extern "C" fn noop_builder(_root: *mut FreyaElement) {}
+
+        freya_quit();
+        assert!(window::quit_requested());
+        let title = c("Quit Window");
+        freya_launch(title.as_ptr(), 400.0, 300.0, noop_builder);
+        assert!(!window::quit_requested(), "launch must consume the request");
+        assert_eq!(freya_presented_frame_count(), 0);
     }
 
     #[test]

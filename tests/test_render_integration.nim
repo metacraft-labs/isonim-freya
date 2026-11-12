@@ -12,7 +12,7 @@
 ## drives actual Freya rendering.
 ##
 ## Build & run:
-##   LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_render_integration.nim
+##   ./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_render_integration.nim
 
 import unittest
 import std/[json, strutils]

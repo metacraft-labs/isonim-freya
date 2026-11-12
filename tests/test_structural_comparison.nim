@@ -5,7 +5,7 @@
 ## This replaces screenshot comparison with practical structural verification.
 ##
 ## Build & run:
-##   LD_LIBRARY_PATH=rust/target/debug nim c -r --path:../isonim/src tests/test_structural_comparison.nim
+##   ./tools/with_shim_path.sh nim c -r --path:../isonim/src tests/test_structural_comparison.nim
 
 import unittest
 import std/[json, strutils]
