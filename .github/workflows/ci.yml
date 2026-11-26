@@ -91,6 +91,9 @@ jobs:
       - name: Build Rust shim
         run: nix develop -c bash -c "cd rust && cargo build"
 
+      - name: Check that every CI job and step gates the run
+        run: nix develop -c bash -c "nim c -r tests/test_ci_jobs_gate.nim"
+
       - name: nim check (basic)
         run: nix develop -c bash -c "nim check tests/test_basic.nim"
 
@@ -157,7 +160,10 @@ jobs:
       matrix:
         runner: [[self-hosted, linux, x64], [self-hosted, linux, arm64], [self-hosted, macos, arm64]]
     runs-on: ${{ matrix.runner }}
-    continue-on-error: true
+    # This job gates: it is the only CI run of the real Freya backend from
+    # Nim. It used to carry `continue-on-error: true`, which kept the run
+    # green while `test_gui` hung under that backend for seven months.
+    # `tests/test_ci_jobs_gate.nim` refuses that setting in any workflow.
     steps:
       # Siblings and Nix: see the same steps in `nim-tests` above.
       - name: Generate CI token

@@ -43,6 +43,7 @@ rust-test:
 # necessarily `rust/target`; `tools/cargo_target_dir.sh` asks cargo for it.
 test:
     nim c -r --hints:off tests/test_nimcache_is_worktree_local.nim
+    nim c -r --hints:off --nimcache:nimcache/test_ci_jobs_gate tests/test_ci_jobs_gate.nim
     ./tools/with_shim_path.sh nim c -r --nimcache:nimcache/test_basic tests/test_basic.nim
     ./tools/with_shim_path.sh nim c -r --nimcache:nimcache/test_renderer tests/test_renderer.nim
     ./tools/with_shim_path.sh nim c -r --nimcache:nimcache/test_window tests/test_window.nim
